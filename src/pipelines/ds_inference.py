@@ -5,12 +5,10 @@ import deepspeed
 import torch
 from transformers import BloomForCausalLM
 
-import utils
-from model import Model
-from utils import benchmark_end_to_end, get_dummy_batch
+from .pipeline import Pipeline
 
 
-class HFAccelerateModel(Model):
+class DS_Inference_Pipeline(Pipeline):
     def __init__(self, args: Namespace) -> None:
         super().__init__(args)
 
@@ -40,18 +38,3 @@ class HFAccelerateModel(Model):
         )
 
         self.input_device = torch.cuda.current_device()
-
-
-def main() -> None:
-    deepspeed.init_distributed("nccl")
-
-    args = utils.get_args(utils.get_arg_parser())
-
-    inputs = get_dummy_batch(args.batch_size)
-    generate_kwargs = dict(max_new_tokens=args.max_new_tokens, do_sample=False)
-
-    benchmark_end_to_end(args, HFAccelerateModel, inputs, generate_kwargs)
-
-
-if __name__ == "__main__":
-    main()

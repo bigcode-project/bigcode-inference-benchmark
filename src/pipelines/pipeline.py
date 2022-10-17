@@ -5,10 +5,8 @@ import torch
 from transformers import AutoTokenizer, BloomConfig
 
 
-class Model(torch.nn.Module):
+class Pipeline:
     def __init__(self, args: Namespace) -> None:
-        super().__init__()
-
         self.config = BloomConfig.from_dict(
             {
                 "apply_residual_connection_post_layernorm": False,
@@ -40,12 +38,13 @@ class Model(torch.nn.Module):
             }
         )
 
+        # hardcoded for now to bigscience/bloom
         self.tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom")
 
         self.model = None
         self.input_device = None
 
-    def generate(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int]]:
+    def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int]]:
         input_tokens = self.tokenizer(text, return_tensors="pt", padding=True)
 
         for t in input_tokens:
