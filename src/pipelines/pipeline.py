@@ -7,8 +7,6 @@ from transformers import AutoTokenizer, BloomConfig
 
 class Pipeline:
     def __init__(self, args: Namespace) -> None:
-        super().__init__()
-
         self.config = BloomConfig.from_dict(
             {
                 "apply_residual_connection_post_layernorm": False,
@@ -40,6 +38,7 @@ class Pipeline:
             }
         )
 
+        # hardcoded for now to bigscience/bloom
         self.tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom")
 
         self.model = None
