@@ -5,7 +5,7 @@ import torch
 from transformers import AutoTokenizer, BloomConfig
 
 
-class Model(torch.nn.Module):
+class Pipeline:
     def __init__(self, args: Namespace) -> None:
         super().__init__()
 
@@ -45,7 +45,7 @@ class Model(torch.nn.Module):
         self.model = None
         self.input_device = None
 
-    def generate(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int]]:
+    def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int]]:
         input_tokens = self.tokenizer(text, return_tensors="pt", padding=True)
 
         for t in input_tokens:
