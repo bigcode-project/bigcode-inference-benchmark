@@ -26,6 +26,6 @@ class HF_CPU_Pipeline(HF_Pipeline):
         super().__init__(args, "cpu")
 
 
-class HF_GPU_Pipeline(HF_CPU_Pipeline):
+class HF_GPU_Pipeline(HF_Pipeline):
     def __init__(self, args: Namespace) -> None:
         super().__init__(args, "cuda:0")
