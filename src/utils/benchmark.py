@@ -7,6 +7,8 @@ import torch
 
 from pipelines import Pipeline
 
+from .utils import print_rank_n, run_and_log_time
+
 
 def benchmark_generation(pipeline: Pipeline, text: List[str], generate_kwargs: dict, cycles: int = 5) -> int:
     # run benchmarks for number of cycles
