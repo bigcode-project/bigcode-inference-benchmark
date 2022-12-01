@@ -12,6 +12,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--max_new_tokens", default=100, type=int)
     parser.add_argument("--local_rank", type=int)
     parser.add_argument("--hidden_size", type=int)
+    parser.add_argument("--n_positions", type=int)
     parser.add_argument("--n_head", type=int)
     parser.add_argument("--n_layer", type=int)
     parser.add_argument("--benchmark_cycles", type=int, default=5)
