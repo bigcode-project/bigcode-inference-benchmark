@@ -1,3 +1,11 @@
+install-mqa-transformers:
+	git clone https://github.com/bigcode-project/transformers.git; \
+	cd transformers; \
+	git checkout multi_query; \
+	pip install .; \
+	cd ..; \
+	rm -rf transformers;
+
 hf:
 	python src/main.py --hidden_size 6144 --n_head 32 --n_layer 30 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2
 
