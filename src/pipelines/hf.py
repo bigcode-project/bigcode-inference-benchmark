@@ -1,7 +1,6 @@
 from argparse import Namespace
 
 import torch
-from transformers import BloomForCausalLM
 
 from .pipeline import Pipeline
 
@@ -17,7 +16,7 @@ class HF_Pipeline(Pipeline):
             model_kwargs["torch_dtype"] = args.dtype
 
         self.input_device = device
-        self.model = BloomForCausalLM._from_config(self.config, **model_kwargs).to(self.input_device)
+        self.model = self.model_class._from_config(self.config, **model_kwargs).to(self.input_device)
         self.model.eval()
 
 

@@ -2,12 +2,12 @@ from argparse import Namespace
 from typing import List, Tuple, Union
 
 import torch
-from transformers import AutoTokenizer, BloomConfig, GPT2Config
+from transformers import AutoTokenizer, BloomConfig, BloomForCausalLM, GPT2Config, GPT2LMHeadModel
 
 
 class Pipeline:
     def __init__(self, args: Namespace) -> None:
-        self.config, self.tokenizer = get_config_tokenizer(args)
+        self.config, self.tokenizer, self.model_class = get_config_tokenizer_model_class(args)
         self.model = None
         self.input_device = None
 
@@ -38,7 +38,7 @@ class Pipeline:
         return param_count
 
 
-def get_config_tokenizer(args: Namespace) -> Union[BloomConfig, GPT2Config]:
+def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2Config]:
     tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom")
 
     if args.model_class.lower() == "bloom":
@@ -51,6 +51,7 @@ def get_config_tokenizer(args: Namespace) -> Union[BloomConfig, GPT2Config]:
             bos_token_id=tokenizer.bos_token_id,
             eos_token_id=tokenizer.eos_token_id,
         )
+        model_class = BloomForCausalLM
     elif args.model_class.lower() == "gpt2":
         config = GPT2Config(
             n_embd=args.hidden_size,
@@ -63,5 +64,6 @@ def get_config_tokenizer(args: Namespace) -> Union[BloomConfig, GPT2Config]:
             print_details=False,
             vocab_size=len(tokenizer),
         )
+        model_class = GPT2LMHeadModel
 
-    return config, tokenizer
+    return config, tokenizer, model_class

@@ -3,7 +3,6 @@ from argparse import Namespace
 
 import deepspeed
 import torch
-from transformers import BloomForCausalLM
 
 from .pipeline import Pipeline
 
@@ -16,7 +15,7 @@ class DS_Inference_Pipeline(Pipeline):
 
         # with deepspeed.OnDevice(dtype=torch.bfloat16, device="meta"):
         #     model = BloomForCausalLM._from_config(config, torch_dtype=torch.bfloat16)
-        self.model = BloomForCausalLM._from_config(self.config, torch_dtype=torch.bfloat16)
+        self.model = self.model_class._from_config(self.config, torch_dtype=torch.bfloat16)
         self.model.eval()
 
         # checkpoints_json = os.path.join(args.model_name, "checkpoints.json")
