@@ -6,6 +6,7 @@ import torch
 def get_arg_parser() -> ArgumentParser:
     parser = ArgumentParser()
     parser.add_argument("--pipeline_class", default="HF_GPU_Pipeline", type=str)
+    parser.add_argument("--model_class", default="GPT2", type=str)
     parser.add_argument("--batch_size", default=1, type=int)
     parser.add_argument("--dtype", default="bfloat16", type=str)
     parser.add_argument("--max_new_tokens", default=100, type=int)

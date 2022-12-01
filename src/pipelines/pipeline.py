@@ -1,46 +1,13 @@
 from argparse import Namespace
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import torch
-from transformers import AutoTokenizer, BloomConfig
+from transformers import AutoTokenizer, BloomConfig, GPT2Config
 
 
 class Pipeline:
     def __init__(self, args: Namespace) -> None:
-        self.config = BloomConfig.from_dict(
-            {
-                "apply_residual_connection_post_layernorm": False,
-                "architectures": ["BloomModel"],
-                "attention_dropout": 0.0,
-                "attention_softmax_in_fp32": True,
-                "bias_dropout_fusion": True,
-                "bos_token_id": 1,
-                "eos_token_id": 2,
-                "hidden_dropout": 0.0,
-                "hidden_size": args.hidden_size,
-                "initializer_range": 0.02,
-                "layer_norm_epsilon": 1e-05,
-                "masked_softmax_fusion": True,
-                "model_type": "bloom",
-                "n_head": args.n_head,
-                "n_inner": None,
-                "n_layer": args.n_layer,
-                "offset_alibi": 100,
-                "pad_token_id": 3,
-                "pretraining_tp": 1,
-                "skip_bias_add": True,
-                "skip_bias_add_qkv": False,
-                "slow_but_exact": False,
-                "transformers_version": "4.22.2",
-                "unk_token_id": 0,
-                "use_cache": True,
-                "vocab_size": 250880,
-            }
-        )
-
-        # hardcoded for now to bigscience/bloom
-        self.tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom")
-
+        self.config, self.tokenizer = get_config_tokenizer(args)
         self.model = None
         self.input_device = None
 
@@ -69,3 +36,32 @@ class Pipeline:
         for i in self.model.parameters():
             param_count += i.numel()
         return param_count
+
+
+def get_config_tokenizer(args: Namespace) -> Union[BloomConfig, GPT2Config]:
+    tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom")
+
+    if args.model_class.lower() == "bloom":
+        config = BloomConfig(
+            attention_softmax_in_fp32=True,
+            hidden_size=args.hidden_size,
+            n_head=args.n_head,
+            n_layer=args.n_layer,
+            vocab_size=len(tokenizer),
+            bos_token_id=tokenizer.bos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+        )
+    elif args.model_class.lower() == "gpt2":
+        config = GPT2Config(
+            n_embd=args.hidden_size,
+            n_head=args.n_head,
+            n_layer=args.n_layer,
+            n_positions=args.n_positions,
+            bos_token_id=tokenizer.bos_token_id,
+            eos_token_id=tokenizer.eos_token_id,
+            attention_type=args.attention_type,
+            print_details=False,
+            vocab_size=len(tokenizer),
+        )
+
+    return config, tokenizer
