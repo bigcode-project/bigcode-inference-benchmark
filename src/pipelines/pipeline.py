@@ -39,7 +39,7 @@ class Pipeline:
 
 
 def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2Config]:
-    tokenizer = AutoTokenizer.from_pretrained("bigscience/bloom")
+    tokenizer = AutoTokenizer.from_pretrained("gpt2")
 
     if args.model_class.lower() == "bloom":
         config = BloomConfig(
