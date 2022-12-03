@@ -40,6 +40,7 @@ class Pipeline:
 
 def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2Config]:
     tokenizer = AutoTokenizer.from_pretrained("gpt2")
+    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
     if args.model_class.lower() == "bloom":
         config = BloomConfig(
