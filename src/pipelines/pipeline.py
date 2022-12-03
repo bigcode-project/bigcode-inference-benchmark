@@ -51,6 +51,7 @@ def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2
             vocab_size=len(tokenizer),
             bos_token_id=tokenizer.bos_token_id,
             eos_token_id=tokenizer.eos_token_id,
+            use_cache=True,
         )
         model_class = BloomForCausalLM
     elif args.model_class.lower() == "gpt2":
@@ -64,6 +65,7 @@ def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2
             attention_type=get_attention_type(args.attention_type),
             print_details=False,
             vocab_size=len(tokenizer),
+            use_cache=True,
         )
         model_class = GPT2LMHeadModel
 
