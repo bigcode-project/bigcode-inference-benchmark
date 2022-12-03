@@ -1,3 +1,5 @@
+batch_size := 1
+
 install-mqa-transformers:
 	git clone https://github.com/bigcode-project/transformers.git; \
 	cd transformers; \
@@ -6,8 +8,54 @@ install-mqa-transformers:
 	cd ..; \
 	rm -rf transformers;
 
-hf:
-	python src/main.py --hidden_size 6144 --n_head 32 --n_layer 30 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2
+# BLOOM AliBi
+hf-1b-bloom-fp32:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class BLOOM --dtype float32 --batch_size ${batch_size}
 
-ds-inference:
-	deepspeed --num_gpus 1 src/main.py --hidden_size 6144 --n_head 32 --n_layer 30 --pipeline_class DS_Inference_Pipeline --model_class BLOOM
+hf-1b-bloom-bf16:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class BLOOM --dtype bfloat16 --batch_size ${batch_size}
+
+hf-1b-bloom-int8:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class BLOOM --dtype int8 --batch_size ${batch_size}
+
+ds-inference-1b-bloom:
+	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class BLOOM --batch_size ${batch_size}
+
+# GPT2 MHA
+hf-1b-GPT2-mha-fp32:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 1 --dtype float32 --batch_size ${batch_size}
+
+hf-1b-GPT2-mha-bf16:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 1 --dtype bfloat16 --batch_size ${batch_size}
+
+hf-1b-GPT2-mha-int8:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 1 --dtype int8 --batch_size ${batch_size}
+
+ds-inference-1b-GPT2-mha:
+	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 1 --batch_size ${batch_size}
+
+# GPT2 MQA
+hf-1b-GPT2-mqa-fp32:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2 --dtype float32 --batch_size ${batch_size}
+
+hf-1b-GPT2-mqa-bf16:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2 --dtype bfloat16 --batch_size ${batch_size}
+
+hf-1b-GPT2-mqa-int8:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2 --dtype int8 --batch_size ${batch_size}
+
+ds-inference-1b-GPT2-mqa:
+	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2 --batch_size ${batch_size}
+
+# GPT2 MQA1
+hf-1b-GPT2-mqa1-fp32:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --dtype float32 --batch_size ${batch_size}
+
+hf-1b-GPT2-mqa1-bf16:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --dtype bfloat16 --batch_size ${batch_size}
+
+hf-1b-GPT2-mqa1-int8:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --dtype int8 --batch_size ${batch_size}
+
+ds-inference-1b-GPT2-mqa1:
+	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --batch_size ${batch_size}
