@@ -17,6 +17,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--n_head", type=int)
     parser.add_argument("--n_layer", type=int)
     parser.add_argument("--benchmark_cycles", type=int, default=5)
+    parser.add_argument("--clear_every_run", action="store_true")
     return parser
 
 
