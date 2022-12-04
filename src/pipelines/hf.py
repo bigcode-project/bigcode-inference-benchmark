@@ -10,13 +10,17 @@ class HF_Pipeline(Pipeline):
         super().__init__(args)
 
         model_kwargs = {}
+
+        if device.startswith("cuda"):
+            model_kwargs["device_map"] = "balanced"
+
         if args.dtype == torch.int8:
             model_kwargs["load_in_8bit"] = True
         else:
             model_kwargs["torch_dtype"] = args.dtype
 
         self.input_device = device
-        self.model = self.model_class._from_config(self.config, **model_kwargs).to(self.input_device)
+        self.model = self.model_class.from_pretrained("tmp", **model_kwargs)
         self.model.eval()
 
 

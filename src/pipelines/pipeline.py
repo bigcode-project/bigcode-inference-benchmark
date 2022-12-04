@@ -1,3 +1,4 @@
+import os
 from argparse import Namespace
 from typing import List, Tuple, Union
 
@@ -68,6 +69,9 @@ def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2
             use_cache=True,
         )
         model_class = GPT2LMHeadModel
+
+    if not os.path.exists("tmp"):
+        model_class._from_config(config).save_pretrained("tmp")
 
     return config, tokenizer, model_class
 
