@@ -18,7 +18,7 @@ hf-1b-bloom-bf16:
 hf-1b-bloom-int8:
 	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class BLOOM --dtype int8 --batch_size ${batch_size}
 
-ds-inference-1b-bloom:
+ds-inference-1b-bloom-fp16:
 	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class BLOOM --batch_size ${batch_size}
 
 # GPT2 MHA
@@ -31,7 +31,7 @@ hf-1b-GPT2-mha-bf16:
 hf-1b-GPT2-mha-int8:
 	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 1 --dtype int8 --batch_size ${batch_size}
 
-ds-inference-1b-GPT2-mha:
+ds-inference-1b-GPT2-mha-fp16:
 	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 1 --batch_size ${batch_size}
 
 # GPT2 MQA
@@ -44,7 +44,7 @@ hf-1b-GPT2-mqa-bf16:
 hf-1b-GPT2-mqa-int8:
 	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2 --dtype int8 --batch_size ${batch_size}
 
-ds-inference-1b-GPT2-mqa:
+ds-inference-1b-GPT2-mqa-fp16:
 	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 2 --batch_size ${batch_size}
 
 # GPT2 MQA1
@@ -57,5 +57,5 @@ hf-1b-GPT2-mqa1-bf16:
 hf-1b-GPT2-mqa1-int8:
 	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --dtype int8 --batch_size ${batch_size}
 
-ds-inference-1b-GPT2-mqa1:
+ds-inference-1b-GPT2-mqa1-fp16:
 	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --batch_size ${batch_size}
