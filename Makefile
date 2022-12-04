@@ -3,7 +3,7 @@ batch_size := 1
 install-mqa-transformers:
 	git clone https://github.com/bigcode-project/transformers.git; \
 	cd transformers; \
-	git checkout multi_query; \
+	git checkout mayank/multi_query; \
 	pip install .; \
 	cd ..; \
 	rm -rf transformers;
