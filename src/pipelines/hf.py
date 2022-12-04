@@ -11,16 +11,13 @@ class HF_Pipeline(Pipeline):
 
         model_kwargs = {}
 
-        if device.startswith("cuda"):
-            model_kwargs["device_map"] = {0: "80GIB"}
-
         if args.dtype == torch.int8:
             model_kwargs["load_in_8bit"] = True
         else:
             model_kwargs["torch_dtype"] = args.dtype
 
         self.input_device = device
-        self.model = self.model_class.from_pretrained("tmp", **model_kwargs)
+        self.model = self.model_class.from_pretrained("tmp", **model_kwargs).to(self.input_device)
         self.model.eval()
 
 
