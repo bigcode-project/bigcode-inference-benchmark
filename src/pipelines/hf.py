@@ -12,7 +12,7 @@ class HF_Pipeline(Pipeline):
         model_kwargs = {}
 
         if device.startswith("cuda"):
-            model_kwargs["device_map"] = "balanced"
+            model_kwargs["device_map"] = {0: "80GIB"}
 
         if args.dtype == torch.int8:
             model_kwargs["load_in_8bit"] = True
