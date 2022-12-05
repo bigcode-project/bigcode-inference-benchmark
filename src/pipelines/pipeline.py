@@ -63,7 +63,7 @@ def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2
             n_positions=args.n_positions,
             bos_token_id=tokenizer.bos_token_id,
             eos_token_id=tokenizer.eos_token_id,
-            attention_type=get_attention_type(args.attention_type),
+            attention_type=args.attention_type,
             print_details=False,
             vocab_size=len(tokenizer),
             use_cache=True,
@@ -74,14 +74,3 @@ def get_config_tokenizer_model_class(args: Namespace) -> Union[BloomConfig, GPT2
         model_class._from_config(config).save_pretrained("tmp")
 
     return config, tokenizer, model_class
-
-
-def get_attention_type(attention_type: int):
-    from transformers.models.gpt2.modeling_gpt2 import AttentionType
-
-    if attention_type == 1:
-        return AttentionType.MULTI_HEAD
-    elif attention_type == 2:
-        return AttentionType.MULTI_QUERY
-    elif attention_type == 3:
-        return AttentionType.MULTI_QUERY_1
