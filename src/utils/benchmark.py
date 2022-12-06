@@ -53,9 +53,10 @@ def benchmark_end_to_end(args: Namespace, pipeline_class: Pipeline, text: List[s
     if args.benchmark_cycles > 0:
         print_rank_n(f"*** Running benchmark")
 
-        torch.cuda.empty_cache()
-        gc.collect()
-        torch.cuda.synchronize()
+        if args.clear_every_run:
+            torch.cuda.empty_cache()
+            gc.collect()
+            torch.cuda.synchronize()
 
         # benchmark
         total_new_tokens_generated, benchmark_time = run_and_log_time(
