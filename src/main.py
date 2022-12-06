@@ -7,7 +7,8 @@ def main() -> None:
 
     args = get_args(get_arg_parser())
 
-    inputs = get_dummy_batch(args.batch_size)
+    inputs = get_dummy_batch(args.batch_size, args.max_input_length)
+
     generate_kwargs = dict(max_new_tokens=args.max_new_tokens, do_sample=False)
 
     pipeline_class = getattr(pipelines, args.pipeline_class)

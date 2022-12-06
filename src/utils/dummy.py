@@ -15,9 +15,11 @@ dummy_input_sentences = [
 ]
 
 
-def get_dummy_batch(batch_size: int, input_sentences: List[str] = None) -> List[str]:
-    if input_sentences is None:
+def get_dummy_batch(batch_size: int, max_input_length: int = -1) -> List[str]:
+    if max_input_length == -1:
         input_sentences = copy.deepcopy(dummy_input_sentences)
+    else:
+        input_sentences = batch_size * ["Hello " * max_input_length]
 
     if batch_size > len(input_sentences):
         input_sentences *= math.ceil(batch_size / len(input_sentences))

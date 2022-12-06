@@ -59,3 +59,10 @@ hf-1b-GPT2-mqa1-int8:
 
 ds-inference-1b-GPT2-mqa1-fp16:
 	deepspeed --num_gpus 1 src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class DS_Inference_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --batch_size ${batch_size}
+
+# Input length experiments
+hf-1b-GPT2-mqa1-int8-input-length:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 3 --dtype int8 --batch_size ${batch_size} --max_input_length ${max_input_length}
+
+hf-1b-GPT2-mha-int8-input-length:
+	python src/main.py --hidden_size 2048 --n_head 16 --n_layer 24 --pipeline_class HF_GPU_Pipeline --model_class GPT2 --n_positions 2048 --attention_type 1 --dtype int8 --batch_size ${batch_size} --max_input_length ${max_input_length}
