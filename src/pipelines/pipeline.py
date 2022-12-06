@@ -11,9 +11,10 @@ class Pipeline:
         self.config, self.tokenizer, self.model_class = get_config_tokenizer_model_class(args)
         self.model = None
         self.input_device = None
+        self.max_input_length = args.max_input_length
 
     def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int]]:
-        input_tokens = self.tokenizer(text, return_tensors="pt", padding=True)
+        input_tokens = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=self.max_input_length)
 
         for t in input_tokens:
             if torch.is_tensor(input_tokens[t]):
@@ -25,6 +26,7 @@ class Pipeline:
         output_tokens = output.sequences
 
         input_token_lengths = [x.shape[0] for x in input_tokens.input_ids]
+        print("Input token lengths: ", input_token_lengths)
         output_token_lengths = [x.shape[0] for x in output_tokens]
         num_generated_tokens = [o - i for i, o in zip(input_token_lengths, output_token_lengths)]
 

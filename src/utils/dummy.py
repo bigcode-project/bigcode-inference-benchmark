@@ -1,7 +1,7 @@
 import copy
 import math
 from typing import List
-
+import random
 
 dummy_input_sentences = [
     "DeepSpeed is a machine learning framework",
@@ -23,4 +23,11 @@ def get_dummy_batch(batch_size: int, input_sentences: List[str] = None) -> List[
         input_sentences *= math.ceil(batch_size / len(input_sentences))
     input_sentences = input_sentences[:batch_size]
 
+    return input_sentences
+
+def get_dummy_batch_tokenizer(batch_size : int, tokenizer, max_input_length : int) -> List[str]:
+    input_sentences = []
+    for i in range(batch_size):
+        sentence = [random.randint(0, tokenizer.vocab_size-1) for _ in range(max_input_length)]
+        input_sentences.append(tokenizer.decode(sentence))
     return input_sentences
