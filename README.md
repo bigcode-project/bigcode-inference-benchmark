@@ -1,7 +1,7 @@
 # bigcode-inference-benchmark
 A100 80GB
 
-BLOOM
+## BLOOM
 ```python
 hidden_size = 2048
 n_head = 16
@@ -61,7 +61,7 @@ Latency (sec)
 | 1792       | oom       | 18.49     | 21.48     | oom                 |
 | 1920       | oom       | oom       | oom       | oom                 |
 
-GPT2 Multi-Head Attention
+## GPT2 Multi-Head Attention
 ```python
 hidden_size = 2048
 n_head = 16
