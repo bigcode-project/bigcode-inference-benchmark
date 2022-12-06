@@ -7,9 +7,12 @@ def main() -> None:
 
     args = get_args(get_arg_parser())
 
-    tokenizer = AutoTokenizer.from_pretrained("gpt2")
-    tokenizer.add_special_tokens({"pad_token": "[PAD]"})
-    inputs = get_dummy_batch_tokenizer(args.batch_size, tokenizer, args.max_input_length)
+    if args.max_input_length == -1:
+        inputs = get_dummy_batch(args.batch_size)
+    else:
+        tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        inputs = get_dummy_batch_tokenizer(args.batch_size, tokenizer, args.max_input_length)
 
     generate_kwargs = dict(max_new_tokens=args.max_new_tokens, do_sample=False)
 

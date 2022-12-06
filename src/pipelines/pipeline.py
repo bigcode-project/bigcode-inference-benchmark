@@ -14,7 +14,10 @@ class Pipeline:
         self.max_input_length = args.max_input_length
 
     def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int]]:
-        input_tokens = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=self.max_input_length)
+        if self.max_input_length == -1:
+            input_tokens = self.tokenizer(text, return_tensors="pt", padding=True)
+        else:
+            input_tokens = self.tokenizer(text, return_tensors="pt", padding=True, truncation=True, max_length=self.max_input_length)
 
         for t in input_tokens:
             if torch.is_tensor(input_tokens[t]):
