@@ -6,6 +6,7 @@ BLOOM
 hidden_size = 2048
 n_head = 16
 n_layer = 24
+total_params = 1311535104
 ```
 
 Throughput (tokens/sec | msec/token)
