@@ -7,7 +7,7 @@ do
     make $1 batch_size=$bs
 done
 
-for i in {1..20}
+for i in {1..40}
 do
     bs=$(($i*128))
     make $1 batch_size=$bs
