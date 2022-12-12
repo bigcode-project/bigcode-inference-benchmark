@@ -9,6 +9,9 @@ n_layer = 24
 total_params = 1311535104
 ```
 
+![image](images/BLOOM-throughput.png)
+![image](images/BLOOM-latency.png)
+
 Throughput (tokens/sec | msec/token)
 | batch_size |    HF (fp32)    |    HF (bf16)     |    HF (int8)    | DS-inference (fp16) |
 |:----------:|:---------------:|:----------------:|:---------------:|:-------------------:|
@@ -68,6 +71,9 @@ n_head = 16
 n_layer = 24
 total_params = 1315725312
 ```
+
+![image](images/GPT2-MHA-throughput.png)
+![image](images/GPT2-MHA-latency.png)
 
 Throughput (tokens/sec | msec/token)
 | batch_size |    HF (fp32)    |    HF (bf16)     |    HF (int8)     | DS-inference (fp16) |
