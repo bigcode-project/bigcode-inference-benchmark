@@ -46,7 +46,10 @@ def parse_line(line: str, plot: str = "throughput") -> str:
 
 def parse_data(data: list):
     x = []
-    y = [[], [], [], []]
+    y = []
+    for i in range(len(data[0]) - 1):
+        y.append([])
+
     for dp in data:
         x.append(dp[0])
         for i in range(1, len(dp)):

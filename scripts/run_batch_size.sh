@@ -7,6 +7,7 @@ do
     make $1 batch_size=$bs
 done
 
+# split for loops
 for i in {1..20}
 do
     bs=$(($i*128))
