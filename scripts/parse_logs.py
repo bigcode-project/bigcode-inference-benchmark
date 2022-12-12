@@ -92,15 +92,20 @@ def get_latency_dataframe(results: dict, order: list) -> DataFrame:
 
 
 def make_table(results: dict):
-    order = ["batch_size", "HF (fp32)"]
+    order = ["batch_size", "HF (fp32)", "HF (bf16)", "HF (int8)"]
+
+    kwargs = dict(
+        row_sep="markdown",
+        padding_width=1,
+    )
 
     throughput = get_throughput_dataframe(results, order)
     throughput = throughput.to_dict(orient="records")
-    throughput = markdownTable(throughput).setParams(row_sep="markdown").getMarkdown().split("```")[1]
+    throughput = markdownTable(throughput).setParams(**kwargs).getMarkdown().split("```")[1]
 
     latency = get_latency_dataframe(results, order)
     latency = latency.to_dict(orient="records")
-    latency = markdownTable(latency).setParams(row_sep="markdown").getMarkdown().split("```")[1]
+    latency = markdownTable(latency).setParams(**kwargs).getMarkdown().split("```")[1]
 
     return throughput, latency
 
