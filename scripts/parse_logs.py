@@ -98,7 +98,7 @@ def make_table(results: dict):
     throughput = throughput.to_dict(orient="records")
     throughput = markdownTable(throughput).setParams(row_sep="markdown").getMarkdown().split("```")[1]
 
-    latency = get_throughput_dataframe(results, order)
+    latency = get_latency_dataframe(results, order)
     latency = latency.to_dict(orient="records")
     latency = markdownTable(latency).setParams(row_sep="markdown").getMarkdown().split("```")[1]
 
