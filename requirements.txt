@@ -1,0 +1,2 @@
+deepspeed==0.7.7
+./transformers
