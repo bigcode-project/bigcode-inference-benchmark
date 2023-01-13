@@ -1,4 +1,3 @@
-import enum
 import gc
 import logging
 import time
@@ -29,11 +28,6 @@ METRIC_KEYS = (
     DECODE_TIME,
     END_TO_END_TIME,
 )
-
-
-class ModelType(str, enum.Enum):
-    gpt2 = "gpt2"
-    bloom = "bloom"
 
 
 class Pipeline:
