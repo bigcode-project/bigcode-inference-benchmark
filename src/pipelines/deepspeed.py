@@ -4,7 +4,8 @@ from argparse import Namespace
 import deepspeed
 import torch
 
-from src.pipelines.pipeline import Pipeline, check_unused
+from src.pipelines.pipeline import Pipeline
+from src.utils.arguments import check_unused
 
 
 class DS_Pipeline(Pipeline):

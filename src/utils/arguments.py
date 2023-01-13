@@ -1,4 +1,6 @@
-from argparse import ArgumentParser
+import warnings
+from argparse import ArgumentParser, Namespace
+from typing import Any, Dict
 
 import torch
 
@@ -15,7 +17,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--n_layer", type=int)
 
     # Runtime
-    parser.add_argument("--pipeline_class", default="Pipeline", type=str)
+    parser.add_argument("--pipeline_class", default="HF_Pipeline", type=str)
     parser.add_argument("--device", default="cuda", type=torch.device)
     parser.add_argument("--dtype", default="float16", type=lambda x: getattr(torch, x))
     parser.add_argument("--local_rank", type=int)
@@ -38,9 +40,37 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--cycles", type=int, default=5)
 
     # Profiling and logging
-    parser.add_argument("--max_log_outputs", default=8, type=int)
+    parser.add_argument("--max_log_outputs", default=None, type=int)
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--full_trace", action="store_true")
-    parser.add_argument("--print_op_names", action="store_true")
+    parser.add_argument("--show_op_names", action="store_true")
+    parser.add_argument("--print_details", action="store_true")
 
     return parser
+
+
+def check_unused(args: Namespace, defaults: Dict[str, Any], enforce=False):
+    for name, default in defaults.items():
+        val = getattr(args, name)
+        is_default = val is None if default is None else val == default
+        if not is_default:
+            warnings.warn(
+                f"{'Invalid' if enforce else 'Unexpected'} argument: --{name} (value ="
+                f" {val}, {'setting to' if enforce else 'expected'} {default})"
+            )
+            if enforce:
+                setattr(args, name, default)
+
+
+def parse_args(args=None, parser: ArgumentParser = None) -> Namespace:
+    if parser is None:
+        parser = get_arg_parser()
+    args = parser.parse_args(args)
+
+    if args.warmup is None:
+        args.warmup = args.profile
+
+    if args.max_log_outputs is None:
+        args.max_log_outputs = args.batch_size
+
+    return args

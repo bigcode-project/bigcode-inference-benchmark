@@ -1,6 +1,7 @@
 from argparse import Namespace
 
-from src.pipelines.pipeline import Pipeline, check_unused
+from src.pipelines.pipeline import Pipeline
+from src.utils.arguments import check_unused
 
 
 class HF_Pipeline(Pipeline):
