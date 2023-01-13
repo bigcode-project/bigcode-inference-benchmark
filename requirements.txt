@@ -1,2 +1,4 @@
+accelerate==0.15.0
+bitsandbytes
 deepspeed==0.7.7
 ./transformers
