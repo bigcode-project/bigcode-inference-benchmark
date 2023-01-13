@@ -32,12 +32,11 @@ def configure_logging(name=None):
     logging.config.dictConfig(logging_config)
 
     # Add these methods so that stdout can be redirected to logging.
-    logging.write = lambda msg: logging.info(msg) if msg != '\n' else None
-    logging.flush = lambda : None
+    logging.write = lambda msg: logging.info(msg) if msg != "\n" else None
+    logging.flush = lambda: None
 
-    sys.stdout=logging
-    sys.stderr=logging
-
+    sys.stdout = logging
+    sys.stderr = logging
 
 
 def run_and_log_time(execs: Union[List[partial], partial]) -> Tuple[Union[List[Any], Any], float]:
@@ -78,6 +77,7 @@ def print_rank_n(*values, rank: int = 0) -> None:
             print(*values)
     else:
         print(*values)
+
 
 def format_ms(t: float):
     return f"{1000 * t:.2f} ms"

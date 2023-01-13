@@ -17,7 +17,7 @@ def get_arg_parser() -> ArgumentParser:
     # Runtime
     parser.add_argument("--pipeline_class", default="Pipeline", type=str)
     parser.add_argument("--device", default="cuda", type=torch.device)
-    parser.add_argument("--dtype", default="float16", type=lambda x:getattr(torch, x))
+    parser.add_argument("--dtype", default="float16", type=lambda x: getattr(torch, x))
     parser.add_argument("--local_rank", type=int)
 
     # Input and output

@@ -1,14 +1,14 @@
+import contextlib
 import gc
 import time
 import warnings
 from argparse import Namespace
 from typing import List, Tuple, Type
-import contextlib
 
 import torch
-from transformers import AutoTokenizer, BloomForCausalLM, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel
+
+from transformers import AutoTokenizer, BloomForCausalLM, Conv1D, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel
 from transformers.modeling_utils import no_init_weights
-from transformers import Conv1D
 
 
 def check_unused(args, defaults, enforce=False):
@@ -16,10 +16,12 @@ def check_unused(args, defaults, enforce=False):
         val = getattr(args, name)
         is_default = val is None if default is None else val == default
         if not is_default:
-            warnings.warn(f"{'Invalid' if enforce else 'Unexpected'} argument: --{name} (value = {val}, {'setting to' if enforce else 'expected'} {default})")
+            warnings.warn(
+                f"{'Invalid' if enforce else 'Unexpected'} argument: --{name} (value ="
+                f" {val}, {'setting to' if enforce else 'expected'} {default})"
+            )
             if enforce:
                 setattr(args, name, default)
-
 
 
 def conv1d_init(self, nf, nx, device=None):
@@ -28,7 +30,7 @@ def conv1d_init(self, nf, nx, device=None):
     w = torch.empty(nx, nf, device=device)
     torch.nn.init.normal_(w, std=0.02)
     self.weight = torch.nn.Parameter(w)
-    b=torch.empty(nf, device=device)
+    b = torch.empty(nf, device=device)
     torch.nn.init.zeros_(b)
     self.bias = torch.nn.Parameter(b)
 
@@ -42,7 +44,7 @@ def fast_model(classes, device):
     default_inits = {cls: cls.__init__ for cls in classes}
     for cls in classes:
         # Same as torch.nn.utils.skip_init, excluding checks
-        def init(self,*args, **kwargs):
+        def init(self, *args, **kwargs):
             default_inits[self.__class__](self, *args, **kwargs, device="meta")
             self.to_empty(device=device)
 
@@ -70,7 +72,10 @@ class Pipeline:
         torch_dtype = torch.float16 if is_int8 else args.dtype
 
         print("*** Creating model")
-        with fast_model([torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm, Conv1D], self.device):
+        with fast_model(
+            [torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm, Conv1D],
+            self.device,
+        ):
             self.model = model_class._from_config(config=config, torch_dtype=torch_dtype)
         print("*** Moving to device")
         self.model.to(self.device)
@@ -92,7 +97,6 @@ class Pipeline:
                     load_in_8bit=True,
                     device_map="auto",
                 )
-
 
         self.model.eval()
 
@@ -121,19 +125,18 @@ class Pipeline:
 
         return model_class, model_class.config_class(**config_args)
 
-
-    def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int], Tuple[float,float,float]]:
-        t0=time.perf_counter()
+    def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], List[int], Tuple[float, float, float]]:
+        t0 = time.perf_counter()
         input_tokens = self.tokenizer(text, return_tensors="pt", padding=True)
 
         for t in input_tokens:
             if torch.is_tensor(input_tokens[t]):
                 input_tokens[t] = input_tokens[t].to(self.device)
 
-        t1=time.perf_counter()
+        t1 = time.perf_counter()
         with torch.no_grad():
             output = self.model.generate(**input_tokens, return_dict_in_generate=True, **generate_kwargs)
-        t2=time.perf_counter()
+        t2 = time.perf_counter()
 
         output_tokens = output.sequences
 
@@ -142,9 +145,9 @@ class Pipeline:
         num_generated_tokens = [o - i for i, o in zip(input_token_lengths, output_token_lengths)]
 
         output_text = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
-        t3=time.perf_counter()
+        t3 = time.perf_counter()
 
-        return output_text, num_generated_tokens, (t1-t0, t2-t1, t3-t2)
+        return output_text, num_generated_tokens, (t1 - t0, t2 - t1, t3 - t2)
 
     def get_num_parameters(self) -> int:
         param_count = 0
@@ -152,8 +155,8 @@ class Pipeline:
             param_count += i.numel()
         return param_count
 
+
 class HF_Pipeline(Pipeline):
     def __init__(self, args: Namespace) -> None:
         check_unused(args, {"inject_kernel": False, "cuda_graph": False})
         super().__init__(args)
-

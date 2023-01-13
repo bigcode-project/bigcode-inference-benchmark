@@ -8,14 +8,15 @@ import numpy as np
 import torch
 
 from src.pipelines.pipeline import Pipeline
+from src.utils.utils import format_ms, print_rank_n, run_and_log_time
 
-from src.utils.utils import print_rank_n, run_and_log_time, format_ms
 
-
-def benchmark_generation(pipeline: Pipeline, text: List[str], generate_kwargs: dict, cycles: int = 5) -> Tuple[int,np.ndarray]:
+def benchmark_generation(
+    pipeline: Pipeline, text: List[str], generate_kwargs: dict, cycles: int = 5
+) -> Tuple[int, np.ndarray]:
     # run benchmarks for number of cycles
     total_new_tokens_generated = 0
-    benchmark_times=[]
+    benchmark_times = []
     for _ in range(cycles):
         _, num_generated_tokens, times = pipeline(text, **generate_kwargs)
         total_new_tokens_generated += sum(new_tokens for new_tokens in num_generated_tokens)
@@ -24,14 +25,17 @@ def benchmark_generation(pipeline: Pipeline, text: List[str], generate_kwargs: d
 
 
 def print_benchmark_results(
-    benchmark_times: np.ndarray, initialization_time: float, total_new_tokens_generated: int, batch_size: int
+    benchmark_times: np.ndarray,
+    initialization_time: float,
+    total_new_tokens_generated: int,
+    batch_size: int,
 ):
     cycles = benchmark_times.shape[0]
     assert benchmark_times.shape[1] == 3
 
-    step_time=benchmark_times.mean(axis=0)
-    batch_times=np.array(benchmark_times).sum(axis=1)
-    average_time=batch_times.mean()
+    step_time = benchmark_times.mean(axis=0)
+    batch_times = np.array(benchmark_times).sum(axis=1)
+    average_time = batch_times.mean()
 
     throughput = total_new_tokens_generated / cycles / average_time
     model_throughput = total_new_tokens_generated / cycles / step_time[1]
@@ -51,9 +55,10 @@ def print_benchmark_results(
     print_rank_n(f"Token time (end to end) = {format_ms(throughput**-1)}/token")
     print_rank_n(f"Total tokens generated = {total_new_tokens_generated} with batch size = {batch_size}")
 
+
 def get_trace_fn(args):
     def trace_fn(p):
-        averages=p.key_averages()
+        averages = p.key_averages()
         if args.full_trace:
             # Show every op
             print(p.profiler.table(row_limit=-1, max_src_column_width=1000))
@@ -68,7 +73,12 @@ def get_trace_fn(args):
     return trace_fn
 
 
-def benchmark_end_to_end(args: Namespace, pipeline_class: Type[Pipeline], text: List[str], generate_kwargs: dict) -> None:
+def benchmark_end_to_end(
+    args: Namespace,
+    pipeline_class: Type[Pipeline],
+    text: List[str],
+    generate_kwargs: dict,
+) -> None:
     pipeline: Pipeline
     pipeline, initialization_time = run_and_log_time(partial(pipeline_class, args=args))
 
@@ -79,31 +89,31 @@ def benchmark_end_to_end(args: Namespace, pipeline_class: Type[Pipeline], text: 
 
     warmup = args.warmup
     if warmup is None:
-        warmup=args.profile
+        warmup = args.profile
 
     total_new_tokens_generated = 0
-    benchmark_times=[]
+    benchmark_times = []
 
     if args.profile:
         schedule = torch.profiler.schedule(
             # Warmup is a must if measuring speed as it's when all the optimizations are performed
             # e.g. on 8x80 a100 the first pass of 100 tokens takes 23sec, and the next one is 4secs
-            skip_first = args.skip,
+            skip_first=args.skip,
             # Warmup for the profiler
-            warmup = warmup,
+            warmup=warmup,
             wait=0,
             active=args.cycles,
         )
         p = torch.profiler.profile(
             schedule=schedule,
             activities=[torch.profiler.ProfilerActivity.CUDA],
-            on_trace_ready=get_trace_fn(args)
+            on_trace_ready=get_trace_fn(args),
         )
     else:
         p = contextlib.nullcontext()
 
     with p:
-        for step in range(args.skip+warmup+args.cycles):
+        for step in range(args.skip + warmup + args.cycles):
             generated_text, num_generated_tokens, times = pipeline(text, **generate_kwargs)
             if args.profile:
                 p.step()
@@ -112,7 +122,7 @@ def benchmark_end_to_end(args: Namespace, pipeline_class: Type[Pipeline], text: 
                 for i, o, _ in zip(text, generated_text, range(args.max_log_outputs)):
                     print_rank_n(f"{'-' * 60}\nINPUT = {i}\nOUTPUT = {o}\n")
 
-            if step >= args.skip+warmup:
+            if step >= args.skip + warmup:
                 total_new_tokens_generated += sum(new_tokens for new_tokens in num_generated_tokens)
                 benchmark_times.append(times)
 
@@ -123,5 +133,8 @@ def benchmark_end_to_end(args: Namespace, pipeline_class: Type[Pipeline], text: 
 
     if total_new_tokens_generated > 0:
         print_benchmark_results(
-            np.array(benchmark_times), initialization_time, total_new_tokens_generated, args.batch_size
+            np.array(benchmark_times),
+            initialization_time,
+            total_new_tokens_generated,
+            args.batch_size,
         )
