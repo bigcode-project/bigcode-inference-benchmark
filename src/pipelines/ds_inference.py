@@ -4,7 +4,7 @@ from argparse import Namespace
 import deepspeed
 import torch
 
-from src.pipelines.pipeline import Pipeline
+from .pipeline import Pipeline
 
 
 class DS_Inference_Pipeline(Pipeline):

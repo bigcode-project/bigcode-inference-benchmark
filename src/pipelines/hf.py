@@ -2,7 +2,7 @@ from argparse import Namespace
 
 import torch
 
-from src.pipelines.pipeline import Pipeline
+from .pipeline import Pipeline
 
 
 class HF_Pipeline(Pipeline):
