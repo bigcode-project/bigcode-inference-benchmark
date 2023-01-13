@@ -114,12 +114,7 @@ def main() -> None:
     args = get_args()
 
     input_files = os.listdir(args.input_dir)
-    results = {
-        "throughput": {},
-        "inverse_throughput": {},
-        "latency": {},
-        "batch_size": {},
-    }
+    results = {"throughput": {}, "inverse_throughput": {}, "latency": {}, "batch_size": {}}
     filename_column = {
         "fp32.log": "HF (fp32)",
         "bf16.log": "HF (bf16)",
