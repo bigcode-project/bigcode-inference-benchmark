@@ -1,4 +1,3 @@
-import contextlib
 import gc
 import time
 import warnings
@@ -7,8 +6,8 @@ from typing import List, Tuple, Type
 
 import torch
 
-from transformers import AutoTokenizer, BloomForCausalLM, Conv1D, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel
-from transformers.modeling_utils import no_init_weights
+from src.utils.fast_init import fast_init
+from transformers import AutoTokenizer, BloomForCausalLM, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel
 
 
 def check_unused(args, defaults, enforce=False):
@@ -22,39 +21,6 @@ def check_unused(args, defaults, enforce=False):
             )
             if enforce:
                 setattr(args, name, default)
-
-
-def conv1d_init(self, nf, nx, device=None):
-    super(Conv1D, self).__init__()
-    self.nf = nf
-    w = torch.empty(nx, nf, device=device)
-    torch.nn.init.normal_(w, std=0.02)
-    self.weight = torch.nn.Parameter(w)
-    b = torch.empty(nf, device=device)
-    torch.nn.init.zeros_(b)
-    self.bias = torch.nn.Parameter(b)
-
-
-Conv1D.__init__ = conv1d_init
-
-
-@contextlib.contextmanager
-def fast_model(classes, device):
-    # Avoid multiple slow initializations on cpu.
-    default_inits = {cls: cls.__init__ for cls in classes}
-    for cls in classes:
-        # Same as torch.nn.utils.skip_init, excluding checks
-        def init(self, *args, **kwargs):
-            default_inits[self.__class__](self, *args, **kwargs, device="meta")
-            self.to_empty(device=device)
-
-        cls.__init__ = init
-
-    with no_init_weights():
-        yield
-
-    for cls in classes:
-        cls.__init__ = default_inits[cls]
 
 
 class Pipeline:
@@ -72,10 +38,7 @@ class Pipeline:
         torch_dtype = torch.float16 if is_int8 else args.dtype
 
         print("*** Creating model")
-        with fast_model(
-            [torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm, Conv1D],
-            self.device,
-        ):
+        with fast_init(self.device):
             self.model = model_class._from_config(config=config, torch_dtype=torch_dtype)
         print("*** Moving to device")
         self.model.to(self.device)
@@ -91,7 +54,7 @@ class Pipeline:
             gc.collect()
             torch.cuda.empty_cache()
             print("*** Reloading model in int8")
-            with fast_model([torch.nn.Linear, torch.nn.Embedding, torch.nn.LayerNorm], self.device):
+            with fast_init(self.device):
                 self.model = model_class.from_pretrained(
                     "tmp",
                     load_in_8bit=True,
@@ -154,9 +117,3 @@ class Pipeline:
         for i in self.model.parameters():
             param_count += i.numel()
         return param_count
-
-
-class HF_Pipeline(Pipeline):
-    def __init__(self, args: Namespace) -> None:
-        check_unused(args, {"inject_kernel": False, "cuda_graph": False})
-        super().__init__(args)

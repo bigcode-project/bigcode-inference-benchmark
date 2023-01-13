@@ -1,2 +1,11 @@
-from .ds_inference import DS_Pipeline
-from .pipeline import HF_Pipeline
+def get_pipeline_class(name):
+    if name == "DS_Pipeline":
+        from src.pipelines.transformers import HF_Pipeline
+
+        return HF_Pipeline
+    elif name == "DS_Pipeline":
+        from src.pipelines.deepspeed import DS_Pipeline
+
+        return DS_Pipeline
+    else:
+        raise NotImplementedError(f"Unsupported pipeline class: {name}")

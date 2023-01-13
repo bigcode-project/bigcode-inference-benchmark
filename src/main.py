@@ -1,5 +1,7 @@
-import src.pipelines
-from src.utils import benchmark_end_to_end, get_arg_parser, get_dummy_batch
+from src.pipelines import get_pipeline_class
+from src.utils.arguments import get_arg_parser
+from src.utils.benchmark import benchmark_end_to_end
+from src.utils.input import get_dummy_batch
 from src.utils.utils import configure_logging
 
 
@@ -8,9 +10,9 @@ def main() -> None:
 
     inputs = get_dummy_batch(args.batch_size, args.max_input_length)
 
-    generate_kwargs = dict(max_new_tokens=args.max_new_tokens, do_sample=False)
+    generate_kwargs = {"max_new_tokens": args.max_new_tokens, "do_sample": False}
 
-    pipeline_class = getattr(src.pipelines, args.pipeline_class)
+    pipeline_class = get_pipeline_class(args.pipeline_class)
     benchmark_end_to_end(args, pipeline_class, inputs, generate_kwargs)
 
 
