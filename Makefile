@@ -1,3 +1,9 @@
+check_dirs := src scripts
+
+style:
+	black --preview $(check_dirs)
+	isort $(check_dirs)
+
 batch_size := 1
 
 install-mqa-transformers:
