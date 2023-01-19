@@ -62,10 +62,10 @@ def check_unused(args: Namespace, defaults: Dict[str, Any], enforce=False):
                 setattr(args, name, default)
 
 
-def parse_args(args=None, parser: ArgumentParser = None) -> Namespace:
+def parse_args(argv=None, parser: ArgumentParser = None) -> Namespace:
     if parser is None:
         parser = get_arg_parser()
-    args = parser.parse_args(args)
+    args = parser.parse_args(argv)
 
     if args.warmup is None:
         args.warmup = args.profile

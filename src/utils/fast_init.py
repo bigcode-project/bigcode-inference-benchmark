@@ -27,7 +27,7 @@ _ORIGINAL_INITS: Dict[Type[torch.nn.Module], Callable] = {
 
 
 def _get_fast_init(cls: Type[torch.nn.Module], device: torch.device):
-    assert cls in _ORIGINAL_INITS[cls]
+    assert cls in _ORIGINAL_INITS
 
     def _fast_init(self, *args, **kwargs):
         # Same as torch.nn.utils.skip_init, excluding checks

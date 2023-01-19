@@ -1,4 +1,5 @@
 *
 !src
 !transformers
+!DeepSpeed
 !requirements.txt

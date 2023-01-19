@@ -1,12 +1,14 @@
+from typing import List, Optional
+
 from src.pipelines import get_pipeline_class
-from src.utils.arguments import get_arg_parser
+from src.utils.arguments import parse_args
 from src.utils.benchmark import benchmark_end_to_end
 from src.utils.input import get_dummy_batch
 from src.utils.logging import configure_logging
 
 
-def main() -> None:
-    args = get_arg_parser().parse_args()
+def main(argv: Optional[List[str]] = None) -> None:
+    args = parse_args(argv=argv)
 
     inputs = get_dummy_batch(args.batch_size, args.max_input_length)
 

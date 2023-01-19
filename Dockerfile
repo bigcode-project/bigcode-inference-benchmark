@@ -11,6 +11,7 @@ RUN useradd -m -u $USER -s /bin/bash $USERNAME \
 
 COPY --chown=$USERNAME ./requirements.txt ./
 COPY --chown=$USERNAME transformers/ ./transformers
+COPY --chown=$USERNAME DeepSpeed/ ./DeepSpeed
 RUN pip install -r requirements.txt
 
 COPY --chown=$USERNAME src/ ./src

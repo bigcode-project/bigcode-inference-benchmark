@@ -1,6 +1,6 @@
 accelerate==0.15.0
 bitsandbytes
-./Deepspeed
+./DeepSpeed
 ./transformers
 
 # TODO: Dev only

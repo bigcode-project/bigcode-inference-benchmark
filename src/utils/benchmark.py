@@ -35,7 +35,7 @@ def get_trace_fn(args, rank=-1):
     return trace_fn
 
 
-def get_profiler(args: Namespace) -> Union[torch.profiler.profile, contextlib.nullcontext()]:
+def get_profiler(args: Namespace) -> Union[torch.profiler.profile, contextlib.nullcontext]:
     schedule = torch.profiler.schedule(
         # Warmup is a must if measuring speed as it's when all the optimizations are performed
         # e.g. on 8x80 a100 the first pass of 100 tokens takes 23sec, and the next one is 4secs
