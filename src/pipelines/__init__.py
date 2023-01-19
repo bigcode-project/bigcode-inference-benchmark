@@ -1,5 +1,5 @@
 def get_pipeline_class(name):
-    if name == "DS_Pipeline":
+    if name == "HF_Pipeline":
         from src.pipelines.transformers import HF_Pipeline
 
         return HF_Pipeline
