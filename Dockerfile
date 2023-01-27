@@ -11,6 +11,8 @@ RUN useradd -m -u $USER -s /bin/bash $USERNAME \
 
 COPY --chown=$USERNAME ./requirements.txt ./
 COPY --chown=$USERNAME transformers/ ./transformers
-RUN pip install -r requirements.txt
+
+# Stock version of pip doesn't work with editable transformers.
+RUN pip install --upgrade pip && pip install -r requirements.txt
 
 COPY --chown=$USERNAME src/ ./src

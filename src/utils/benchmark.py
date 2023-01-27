@@ -3,9 +3,8 @@ import gc
 import logging
 from argparse import Namespace
 from functools import partial
-from typing import List, Tuple, Type, Union
+from typing import List, Type, Union
 
-import numpy as np
 import torch
 
 from src.pipelines.pipeline import Pipeline
@@ -17,14 +16,24 @@ logger = logging.getLogger(__name__)
 
 
 def get_trace_fn(args, rank=-1):
-    def trace_fn(p):
+    def trace_fn(
+        p: torch.profiler.profile,
+    ):
         averages = p.key_averages()
         if args.full_trace:
-            # Show every op
-            log_rank_n(p.profiler.table(row_limit=-1, max_src_column_width=1000), logger.info, rank)
+            # Show every GPU op.
+            # Exclude CPU cuda ops to shorten the table.
+            events = torch.autograd.profiler.EventList(
+                [evt for evt in p.profiler.function_events if evt.self_cuda_time_total > 0]
+            )
+            log_rank_n(events.table(row_limit=-1, max_src_column_width=1000), logger.info, rank)
+
         if args.show_op_names:
-            # Show non-cropped names
-            for entry in averages:
+            # Show non-cropped names, in the same order as in the table.
+            averages_sorted = torch.autograd.profiler.EventList(
+                sorted(averages, key=lambda evt: evt.self_cuda_time_total, reverse=True)
+            )
+            for entry in averages_sorted:
                 log_rank_n(entry.key, logger.info, rank)
 
         # Try to avoid name cropping, still hard-coded to max 55 characters

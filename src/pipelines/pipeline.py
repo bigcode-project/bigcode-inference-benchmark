@@ -72,6 +72,7 @@ class Pipeline:
 
     def get_config(self, args) -> Tuple[Type[PreTrainedModel], PretrainedConfig]:
         config_args = {
+            "activation_function": args.activation_function,
             "n_head": args.n_head,
             "n_layer": args.n_layer,
             "bos_token_id": self.tokenizer.bos_token_id,
