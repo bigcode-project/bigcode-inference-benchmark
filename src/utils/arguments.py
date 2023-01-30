@@ -16,6 +16,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--n_head", type=int)
     parser.add_argument("--n_layer", type=int)
     parser.add_argument("--activation_function", default="gelu_new_python")
+    parser.add_argument("--pre_allocate_cache", action="store_true")
 
     # Runtime
     parser.add_argument("--pipeline_class", default="HF_Pipeline", type=str)
@@ -45,7 +46,6 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--full_trace", action="store_true")
     parser.add_argument("--show_op_names", action="store_true")
-    parser.add_argument("--print_details", action="store_true")
 
     return parser
 
