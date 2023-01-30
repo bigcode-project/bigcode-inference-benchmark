@@ -6,13 +6,9 @@ style:
 
 batch_size := 1
 
-install-mqa-transformers:
-	git clone https://github.com/bigcode-project/transformers.git; \
-	cd transformers; \
-	git checkout mayank/multi_query; \
-	pip install .; \
-	cd ..; \
-	rm -rf transformers;
+install:
+	git submodule update --init
+	pip install -r requirements.txt
 
 # BLOOM AliBi
 hf-1b-bloom-fp32:

@@ -45,7 +45,6 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--full_trace", action="store_true")
     parser.add_argument("--show_op_names", action="store_true")
-    parser.add_argument("--print_details", action="store_true")
 
     return parser
 

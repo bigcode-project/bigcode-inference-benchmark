@@ -75,7 +75,6 @@ class Pipeline:
             config_args["attention_type"] = args.attention_type
             config_args["n_embd"] = args.hidden_size
             config_args["n_positions"] = args.n_positions
-            config_args["print_details"] = args.print_details
             model_class = GPT2LMHeadModel
         else:
             raise NotImplementedError()
