@@ -91,7 +91,7 @@ class Pipeline:
                 input_tokens[t] = input_tokens[t].to(self.device)
 
         t1 = time.perf_counter()
-        with torch.no_grad():
+        with torch.inference_mode():
             output = self.model.generate(**input_tokens, return_dict_in_generate=True, **generate_kwargs)
         t2 = time.perf_counter()
 
