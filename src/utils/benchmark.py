@@ -1,76 +1,110 @@
+import contextlib
 import gc
+import logging
 from argparse import Namespace
 from functools import partial
-from typing import List
+from typing import List, Type, Union
 
 import torch
 
-from pipelines import Pipeline
-
-from .utils import print_rank_n, run_and_log_time
-
-
-def benchmark_generation(pipeline: Pipeline, text: List[str], generate_kwargs: dict, cycles: int = 5) -> int:
-    # run benchmarks for number of cycles
-    total_new_tokens_generated = 0
-    for _ in range(cycles):
-        _, num_generated_tokens = pipeline(text, **generate_kwargs)
-        total_new_tokens_generated += sum(new_tokens for new_tokens in num_generated_tokens)
-    return total_new_tokens_generated
+from src.pipelines.pipeline import Pipeline
+from src.utils.logging import format_ms, log_dict, log_rank_n
+from src.utils.utils import run_and_log_time
 
 
-def get_benchmark_results(
-    benchmark_time: float, initialization_time: float, total_new_tokens_generated: int, batch_size: int, cycles: int
-) -> str:
-    throughput = total_new_tokens_generated / benchmark_time
-    latency = benchmark_time / cycles
-    return f"""
-*** Performance stats:
-Throughput (including tokenization) = {throughput:.2f} tokens/sec
-Throughput (including tokenization) = {1000 / throughput:.2f} msecs/token
-Model loading time = {initialization_time:.2f} secs
-Total tokens generated = {total_new_tokens_generated} with batch size = {batch_size}
-Latency = {latency:.2f} secs
-Model loading time + generation time per batch = {initialization_time + latency:.2f} secs
-"""
+logger = logging.getLogger(__name__)
 
 
-def benchmark_end_to_end(args: Namespace, pipeline_class: Pipeline, text: List[str], generate_kwargs: dict) -> None:
+def get_trace_fn(args, rank=-1):
+    def trace_fn(
+        p: torch.profiler.profile,
+    ):
+        averages = p.key_averages()
+        if args.full_trace:
+            # Show every GPU op.
+            # Exclude CPU cuda ops to shorten the table.
+            events = torch.autograd.profiler.EventList(
+                [evt for evt in p.profiler.function_events if evt.self_cuda_time_total > 0]
+            )
+            log_rank_n(events.table(row_limit=-1, max_src_column_width=1000), logger.info, rank)
+
+        if args.show_op_names:
+            # Show non-cropped names, in the same order as in the table.
+            averages_sorted = torch.autograd.profiler.EventList(
+                sorted(averages, key=lambda evt: evt.self_cuda_time_total, reverse=True)
+            )
+            for entry in averages_sorted:
+                log_rank_n(entry.key, logger.info, rank)
+
+        # Try to avoid name cropping, still hard-coded to max 55 characters
+        log_rank_n(
+            averages.table(sort_by="self_cuda_time_total", row_limit=-1, max_src_column_width=1000), logger.info, rank
+        )
+
+    return trace_fn
+
+
+def get_profiler(args: Namespace) -> Union[torch.profiler.profile, contextlib.nullcontext]:
+    schedule = torch.profiler.schedule(
+        # Warmup is a must if measuring speed as it's when all the optimizations are performed
+        # e.g. on 8x80 a100 the first pass of 100 tokens takes 23sec, and the next one is 4secs
+        skip_first=args.skip,
+        # Warmup for the profiler
+        warmup=args.warmup,
+        wait=0,
+        active=args.cycles,
+    )
+    return torch.profiler.profile(
+        schedule=schedule,
+        activities=[torch.profiler.ProfilerActivity.CUDA],
+        on_trace_ready=get_trace_fn(args),
+    )
+
+
+def benchmark_end_to_end(
+    args: Namespace,
+    pipeline_class: Type[Pipeline],
+    text: List[str],
+    generate_kwargs: dict,
+) -> None:
+    pipeline: Pipeline
     pipeline, initialization_time = run_and_log_time(partial(pipeline_class, args=args))
 
-    print_rank_n("num params =", pipeline.get_num_parameters())
+    warmup = args.warmup
+    if warmup is None:
+        warmup = args.profile
 
-    print_rank_n(f"generate_kwargs = {generate_kwargs}")
-    print_rank_n(f"batch_size = {args.batch_size}")
+    all_metrics = []
 
-    # warmup is a must if measuring speed as it's when all the optimizations are performed
-    # e.g. on 8x80 a100 the first pass of 100 tokens takes 23sec, and the next one is 4secs
-    generated_text, _ = pipeline(text, **generate_kwargs)
+    with (get_profiler(args) if args.profile else contextlib.nullcontext()) as p:
+        for step in range(args.skip + warmup + args.cycles):
+            generated_text, metrics = pipeline(text, **generate_kwargs)
+            if args.profile:
+                p.step()
 
-    for i, o in zip(text, generated_text):
-        print_rank_n(f"{'-' * 60}\nINPUT = {i}\nOUTPUT = {o}\n")
+            if step == 0:
+                for i, o, _ in zip(text, generated_text, range(args.max_log_outputs)):
+                    log_rank_n(f"{'-' * 60}\nINPUT = {i}\nOUTPUT = {o}", logger.info)
 
-    if args.benchmark_cycles > 0:
-        print_rank_n(f"*** Running benchmark")
+            if step >= args.skip + warmup:
+                all_metrics.append(metrics)
 
-        if args.clear_every_run:
-            torch.cuda.empty_cache()
-            gc.collect()
-            torch.cuda.synchronize()
+            if args.clear_every_run:
+                torch.cuda.synchronize()
+                gc.collect()
+                torch.cuda.empty_cache()
 
-        # benchmark
-        total_new_tokens_generated, benchmark_time = run_and_log_time(
-            partial(
-                benchmark_generation,
-                pipeline=pipeline,
-                text=text,
-                generate_kwargs=generate_kwargs,
-                cycles=args.benchmark_cycles,
-            )
-        )
+    if len(all_metrics) > 0:
+        log_rank_n("*** Performance metrics:", logger.info)
+        log_dict(pipeline.aggregate_and_format_metrics(all_metrics), logger.info)
 
-        print_rank_n(
-            get_benchmark_results(
-                benchmark_time, initialization_time, total_new_tokens_generated, args.batch_size, args.benchmark_cycles
-            )
-        )
+    log_rank_n("*** Benchmarking stats:", logger.info)
+    log_dict(
+        {
+            "Model initialization time": format_ms(initialization_time),
+            "Model parameters": pipeline.get_num_parameters(),
+            "Batch size": args.batch_size,
+            **generate_kwargs,
+        },
+        logger.info,
+    )
