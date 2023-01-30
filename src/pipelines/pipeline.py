@@ -4,16 +4,30 @@ import time
 from argparse import Namespace
 from typing import Any, Dict, List, Tuple, Type
 
+import numpy as np
 import torch
 
-from src.constants import DECODE_TIME, END_TO_END_TIME, MODEL_TIME, NUM_GENERATED_TOKENS, TOKENIZE_TIME
 from src.utils.arguments import check_unused
 from src.utils.fast_init import fast_init
-from src.utils.logging import log_rank_n
+from src.utils.logging import format_ms, log_rank_n
 from transformers import AutoTokenizer, BloomForCausalLM, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel
 
 
 logger = logging.getLogger(__name__)
+
+NUM_GENERATED_TOKENS = "num_generated_tokens"
+TOKENIZE_TIME = "tokenize_time"
+MODEL_TIME = "model_time"
+DECODE_TIME = "decode_time"
+END_TO_END_TIME = "end_to_end_time"
+
+METRIC_KEYS = (
+    NUM_GENERATED_TOKENS,
+    TOKENIZE_TIME,
+    MODEL_TIME,
+    DECODE_TIME,
+    END_TO_END_TIME,
+)
 
 
 class Pipeline:
@@ -115,3 +129,22 @@ class Pipeline:
 
     def get_num_parameters(self) -> int:
         return sum(p.numel() for p in self.model.parameters())
+
+    def aggregate_and_format_metrics(self, metrics: List[Dict[str, Any]]):
+        all_metrics = {key: [metrics_[key] for metrics_ in metrics if key in metrics_] for key in METRIC_KEYS}
+        mean_metrics = {key: np.mean(all_metrics[key]).item() for key in METRIC_KEYS if len(all_metrics[key]) > 0}
+        throughput = mean_metrics[NUM_GENERATED_TOKENS] / mean_metrics[END_TO_END_TIME]
+        model_throughput = mean_metrics[NUM_GENERATED_TOKENS] / mean_metrics[MODEL_TIME]
+
+        return {
+            "Latency (end to end)": format_ms(mean_metrics[END_TO_END_TIME]),
+            "Latency (tokenization)": format_ms(mean_metrics[TOKENIZE_TIME]),
+            "Latency (model)": format_ms(mean_metrics[MODEL_TIME]),
+            "Latency (decode)": format_ms(mean_metrics[DECODE_TIME]),
+            "Latency (max)": format_ms(max(all_metrics[END_TO_END_TIME])),
+            "Latency (min)": format_ms(min(all_metrics[END_TO_END_TIME])),
+            "Tokens generated": f"{mean_metrics[NUM_GENERATED_TOKENS]:.0f}",
+            "Throughput (model)": f"{model_throughput:.2f} tokens/s",
+            "Throughput (end to end)": f"{throughput:.2f} tokens/s",
+            "Token time (end to end)": f"{format_ms(throughput ** -1)}/token",
+        }

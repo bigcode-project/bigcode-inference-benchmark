@@ -3,12 +3,10 @@ import gc
 import logging
 from argparse import Namespace
 from functools import partial
-from typing import Any, Dict, List, Type, Union
+from typing import List, Type, Union
 
-import numpy as np
 import torch
 
-from src.constants import DECODE_TIME, END_TO_END_TIME, METRIC_KEYS, MODEL_TIME, NUM_GENERATED_TOKENS, TOKENIZE_TIME
 from src.pipelines.pipeline import Pipeline
 from src.utils.logging import format_ms, log_dict, log_rank_n
 from src.utils.utils import run_and_log_time
@@ -98,7 +96,7 @@ def benchmark_end_to_end(
 
     if len(all_metrics) > 0:
         log_rank_n("*** Performance metrics:", logger.info)
-        log_dict(aggregate_and_format_metrics(all_metrics), logger.info)
+        log_dict(pipeline.aggregate_and_format_metrics(all_metrics), logger.info)
 
     log_rank_n("*** Benchmarking stats:", logger.info)
     log_dict(
@@ -110,23 +108,3 @@ def benchmark_end_to_end(
         },
         logger.info,
     )
-
-
-def aggregate_and_format_metrics(metrics: List[Dict[str, Any]]):
-    all_metrics = {key: [metrics_[key] for metrics_ in metrics if key in metrics_] for key in METRIC_KEYS}
-    mean_metrics = {key: np.mean(all_metrics[key]).item() for key in METRIC_KEYS if len(all_metrics[key]) > 0}
-    throughput = mean_metrics[NUM_GENERATED_TOKENS] / mean_metrics[END_TO_END_TIME]
-    model_throughput = mean_metrics[NUM_GENERATED_TOKENS] / mean_metrics[MODEL_TIME]
-
-    return {
-        "Latency (end to end)": format_ms(mean_metrics[END_TO_END_TIME]),
-        "Latency (tokenization)": format_ms(mean_metrics[TOKENIZE_TIME]),
-        "Latency (model)": format_ms(mean_metrics[MODEL_TIME]),
-        "Latency (decode)": format_ms(mean_metrics[DECODE_TIME]),
-        "Latency (max)": format_ms(max(all_metrics[END_TO_END_TIME])),
-        "Latency (min)": format_ms(min(all_metrics[END_TO_END_TIME])),
-        "Tokens generated": f"{mean_metrics[NUM_GENERATED_TOKENS]:.0f}",
-        "Throughput (model)": f"{model_throughput:.2f} tokens/s",
-        "Throughput (end to end)": f"{throughput:.2f} tokens/s",
-        "Token time (end to end)": f"{format_ms(throughput ** -1)}/token",
-    }
