@@ -10,7 +10,7 @@ import torch
 from src.utils.arguments import check_unused
 from src.utils.fast_init import fast_init
 from src.utils.logging import format_ms, log_rank_n
-from transformers import AutoTokenizer, BloomForCausalLM, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel
+from transformers import AutoTokenizer, BloomForCausalLM, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel, GPTBigCodeModel
 
 
 logger = logging.getLogger(__name__)
@@ -86,10 +86,15 @@ class Pipeline:
             config_args["hidden_size"] = args.hidden_size
             model_class = BloomForCausalLM
         elif args.model_class.lower() == "gpt2":
-            config_args["attention_type"] = args.attention_type
+            check_unused(args, {"attention_type": 1})
             config_args["n_embd"] = args.hidden_size
             config_args["n_positions"] = args.n_positions
             model_class = GPT2LMHeadModel
+        elif args.model_class.lower() == "gpt_bigcode":
+            #config_args["attention_type"] = args.attention_type
+            config_args["n_embd"] = args.hidden_size
+            config_args["n_positions"] = args.n_positions
+            model_class = GPTBigCodeModel
         else:
             raise NotImplementedError()
 
