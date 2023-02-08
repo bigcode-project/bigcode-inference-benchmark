@@ -9,17 +9,18 @@ def get_arg_parser() -> ArgumentParser:
     parser = ArgumentParser()
 
     # Model
-    parser.add_argument("--model_class", default="GPT2", type=str)
+    parser.add_argument("--model_class", default="gpt2")
     parser.add_argument("--pretrained_model")
+    parser.add_argument("--tokenizer", default="gpt2")
     parser.add_argument("--hidden_size", type=int)
     parser.add_argument("--attention_type", type=int)
     parser.add_argument("--n_positions", type=int)
     parser.add_argument("--n_head", type=int)
     parser.add_argument("--n_layer", type=int)
-    parser.add_argument("--activation_function", default="gelu_new_python")
+    parser.add_argument("--activation_function")
 
     # Runtime
-    parser.add_argument("--pipeline_class", default="HF_Pipeline", type=str)
+    parser.add_argument("--pipeline_class", default="HF_Pipeline")
     parser.add_argument("--device", default="cuda", type=torch.device)
     parser.add_argument("--dtype", default="float16", type=lambda x: getattr(torch, x))
     parser.add_argument("--local_rank", type=int)

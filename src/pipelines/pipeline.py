@@ -42,36 +42,31 @@ class Pipeline:
     def __init__(self, args: Namespace) -> None:
         self.args = args
         log_rank_n("*** Setting up tokenizer", logger.info)
-        self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        self.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
         self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
 
         self.device = args.device
         self.is_int8 = args.dtype == torch.int8
         if self.is_int8:
             check_unused(args, {"device": torch.device("cuda")}, enforce=True)
-        self.torch_dtype = torch.float16 if self.is_int8 else args.dtype
 
         self.model_class, self.config = self._get_config()
 
-        pretrained_model = args.pretrained_model
-        if pretrained_model is None:
-            self.model = self._create_model(self.config)
+        pretrained_path = args.pretrained_model
+        if pretrained_path is None:
+            self.model = self._create_model()
             if self.is_int8:
-                log_rank_n("*** Saving model", logger.info)
-                self.model.save_pretrained("tmp")
-                del self.model
-                gc.collect()
-                pretrained_model = "tmp"
-
-        if pretrained_model is not None:
-            self.model = self._load_pretrained(self.config, pretrained_model)
+                self._save_and_reload()
+        else:
+            self.model = self._load_pretrained(pretrained_path)
 
         self.model.eval()
 
-    def _create_model(self, config):
+    def _create_model(self):
         log_rank_n("*** Creating model", logger.info)
         with fast_init(self.device) if self.args.fast_init else contextlib.nullcontext():
-            model = self.model_class._from_config(config=config, torch_dtype=self.torch_dtype)
+            torch_dtype = torch.float16 if self.is_int8 else self.args.dtype
+            model = self.model_class._from_config(config=self.config, torch_dtype=torch_dtype)
 
         log_rank_n("*** Moving to device", logger.info)
         model.to(self.device)
@@ -80,12 +75,23 @@ class Pipeline:
         model.init_weights()
         return model
 
-    def _load_pretrained(self, config, pretrained_model):
+    def _save_and_reload(self):
+        self._save_pretrained("tmp")
+        del self.model
+        gc.collect()
+        self._load_pretrained("tmp")
+
+    def _save_pretrained(self, pretrained_path):
+        log_rank_n(f"*** Saving model to {pretrained_path}", logger.info)
+        self.model.save_pretrained(pretrained_path)
+
+    def _load_pretrained(self, pretrained_path):
+        log_rank_n(f"*** Loading model from {pretrained_path}", logger.info)
         with fast_init(self.device) if self.args.fast_init else contextlib.nullcontext():
             return self.model_class.from_pretrained(
-                pretrained_model,
-                config=config,
-                load_in_8bit=True,
+                pretrained_path,
+                config=self.config,
+                load_in_8bit=self.is_int8,
                 device_map="auto",
             )
 
