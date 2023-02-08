@@ -10,6 +10,7 @@ def get_arg_parser() -> ArgumentParser:
 
     # Model
     parser.add_argument("--model_class", default="GPT2", type=str)
+    parser.add_argument("--pretrained_model")
     parser.add_argument("--hidden_size", type=int)
     parser.add_argument("--attention_type", type=int)
     parser.add_argument("--n_positions", type=int)
@@ -22,6 +23,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--device", default="cuda", type=torch.device)
     parser.add_argument("--dtype", default="float16", type=lambda x: getattr(torch, x))
     parser.add_argument("--local_rank", type=int)
+    parser.add_argument("--no_fast_init", dest="fast_init", action="store_false")
 
     # Input and output
     parser.add_argument("--batch_size", default=1, type=int)

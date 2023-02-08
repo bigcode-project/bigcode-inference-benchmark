@@ -9,6 +9,12 @@ ENV PYTHONPATH=/app
 RUN useradd -m -u $USER -s /bin/bash $USERNAME \
     && chown $USERNAME /app
 
+# git-lfs is needed to interact with the huggingface hub
+RUN apt-get update \
+    && apt-get install git-lfs \
+    && rm -rf /var/lib/apt/lists/* \
+    && git lfs install
+
 COPY --chown=$USERNAME ./requirements.txt ./
 COPY --chown=$USERNAME transformers/ ./transformers
 

@@ -18,7 +18,6 @@ class DS_Pipeline(Pipeline):
         check_unused(args, {"dtype": torch.float16})
         super().__init__(args)
 
-
         self.model = deepspeed.init_inference(
             self.model,
             mp_size=int(os.getenv("WORLD_SIZE", "1")),
