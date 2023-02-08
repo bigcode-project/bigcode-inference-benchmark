@@ -104,19 +104,21 @@ class Pipeline:
             "eos_token_id": self.tokenizer.eos_token_id,
             "vocab_size": len(self.tokenizer),
             "use_cache": True,
+            # These are not used by all models, but ok to set anyway as they will just be ignored.
+            "attention_type": self.args.attention_type,
+            "cuda_graph": self.args.cuda_graph,
+            "inference_runner": self.args.inference_runner,
         }
+
         if self.args.model_class.lower() == "bloom":
-            check_unused(self.args, {"attention_type": None, "n_positions": None})
             config_args["attention_softmax_in_fp32"] = True
             config_args["hidden_size"] = self.args.hidden_size
             model_class = BloomForCausalLM
         elif self.args.model_class.lower() == "gpt2":
-            check_unused(self.args, {"attention_type": None})
             config_args["n_embd"] = self.args.hidden_size
             config_args["n_positions"] = self.args.n_positions
             model_class = GPT2LMHeadModel
         elif self.args.model_class.lower() == "gpt_bigcode":
-            config_args["attention_type"] = self.args.attention_type
             config_args["n_embd"] = self.args.hidden_size
             config_args["n_positions"] = self.args.n_positions
             model_class = GPTBigCodeLMHeadModel

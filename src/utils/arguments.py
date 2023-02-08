@@ -18,6 +18,8 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--n_head", type=int)
     parser.add_argument("--n_layer", type=int)
     parser.add_argument("--activation_function")
+    parser.add_argument("--inference_runner", action="store_true", default=None)
+    parser.add_argument("--cuda_graph", action="store_true", default=None)
 
     # Runtime
     parser.add_argument("--pipeline_class", default="HF_Pipeline")
@@ -36,7 +38,6 @@ def get_arg_parser() -> ArgumentParser:
 
     # Deepspeed
     parser.add_argument("--no_inject_kernel", dest="inject_kernel", action="store_false")
-    parser.add_argument("--cuda_graph", action="store_true")
 
     # Benchmark cycles
     parser.add_argument("--skip", type=int, default=1)
