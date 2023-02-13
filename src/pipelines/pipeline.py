@@ -3,19 +3,18 @@ import gc
 import logging
 import time
 from argparse import Namespace
-from typing import Any, Dict, List, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple, Type
 
 import numpy as np
 import torch
 
-from src.utils.arguments import check_unused
 from src.utils.fast_init import fast_init
 from src.utils.logging import format_ms, log_rank_n
 from transformers import (
+    CONFIG_MAPPING,
+    AutoConfig,
+    AutoModelForCausalLM,
     AutoTokenizer,
-    BloomForCausalLM,
-    GPT2LMHeadModel,
-    GPTBigCodeLMHeadModel,
     PretrainedConfig,
     PreTrainedModel,
 )
@@ -39,99 +38,134 @@ METRIC_KEYS = (
 
 
 class Pipeline:
-    def __init__(self, args: Namespace) -> None:
-        self.args = args
+    def __init__(
+        self,
+        *,
+        model_type: Optional[str] = None,
+        pretrained_model: Optional[str] = None,
+        config_args: Dict[str, Any],
+        tokenizer: str,
+        device: torch.device,
+        dtype: torch.dtype,
+        fast_init: bool = True,
+    ):
+        self.initialization_metrics = {}
         log_rank_n("*** Setting up tokenizer", logger.info)
-        self.tokenizer = AutoTokenizer.from_pretrained(args.tokenizer)
+        t0 = time.perf_counter()
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+
         self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        t1 = time.perf_counter()
 
-        self.device = args.device
-        self.is_int8 = args.dtype == torch.int8
-        if self.is_int8:
-            check_unused(args, {"device": torch.device("cuda")}, enforce=True)
+        self.device = device
+        self.dtype = dtype
+        self.is_int8 = self.dtype == torch.int8
+        self.fast_init = fast_init
+        if self.is_int8 and self.device != torch.device("cuda"):
+            raise ValueError(f"Model quantization not supported on device {self.device}")
 
-        self.model_class, self.config = self._get_config()
+        self.config = self._get_config(model_type, pretrained_model, config_args)
+        t2 = time.perf_counter()
 
-        pretrained_path = args.pretrained_model
-        if pretrained_path is None:
+        logger.info(f"Model configuration: {self.config}")
+
+        if pretrained_model is None:
             self.model = self._create_model()
             if self.is_int8:
-                self._save_and_reload()
+                self._reload_model()
         else:
-            self.model = self._load_pretrained(pretrained_path)
+            self.model = self._load_pretrained(pretrained_model)
 
         self.model.eval()
+        t3 = time.perf_counter()
+        self.initialization_metrics["tokenizer"] = t1 - t0
+        self.initialization_metrics["configuration"] = t2 - t1
+        self.initialization_metrics["total"] = t3 - t0
 
-    def _create_model(self):
+    def _create_model(self) -> PreTrainedModel:
+        t0 = time.perf_counter()
         log_rank_n("*** Creating model", logger.info)
-        with fast_init(self.device) if self.args.fast_init else contextlib.nullcontext():
-            torch_dtype = torch.float16 if self.is_int8 else self.args.dtype
-            model = self.model_class._from_config(config=self.config, torch_dtype=torch_dtype)
-
+        with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
+            torch_dtype = torch.float16 if self.is_int8 else self.dtype
+            model = AutoModelForCausalLM.from_config(config=self.config, torch_dtype=torch_dtype)
+        t1 = time.perf_counter()
         log_rank_n("*** Moving to device", logger.info)
         model.to(self.device)
+        t2 = time.perf_counter()
         log_rank_n("*** Initializing weights", logger.info)
         # Initialization is ~1000x faster on GPU.
         model.init_weights()
+        t3 = time.perf_counter()
+        self.initialization_metrics["model initialization"] = t1 - t0
+        self.initialization_metrics["move to device"] = t2 - t1
+        self.initialization_metrics["initialize weights"] = t3 - t2
         return model
 
-    def _save_and_reload(self):
+    def _reload_model(self):
         self._save_pretrained("tmp")
         del self.model
         gc.collect()
-        self._load_pretrained("tmp")
+        self.model = self._load_pretrained("tmp")
 
-    def _save_pretrained(self, pretrained_path):
-        log_rank_n(f"*** Saving model to {pretrained_path}", logger.info)
-        self.model.save_pretrained(pretrained_path)
+    def _save_pretrained(self, pretrained_model: str):
+        t0 = time.perf_counter()
+        log_rank_n(f"*** Saving model to {pretrained_model}", logger.info)
+        t1 = time.perf_counter()
+        self.initialization_metrics["save model"] = t1 - t0
+        self.model.save_pretrained(pretrained_model)
 
-    def _load_pretrained(self, pretrained_path):
-        log_rank_n(f"*** Loading model from {pretrained_path}", logger.info)
-        with fast_init(self.device) if self.args.fast_init else contextlib.nullcontext():
-            return self.model_class.from_pretrained(
-                pretrained_path,
+    def _load_pretrained(self, pretrained_model: str) -> PreTrainedModel:
+        t0 = time.perf_counter()
+        log_rank_n(f"*** Loading model from {pretrained_model}", logger.info)
+        with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model,
                 config=self.config,
                 load_in_8bit=self.is_int8,
-                device_map="auto",
+                device_map="auto" if self.is_int8 else None,
             )
+        t1 = time.perf_counter()
+        self.initialization_metrics["load pretrained model"] = t1 - t0
+        if not self.is_int8:
+            log_rank_n("*** Moving to device", logger.info)
+            model = model.to(self.device)
+            t2 = time.perf_counter()
+            self.initialization_metrics["move to device"] = t2 - t1
+        return model
 
-    def _get_config(self) -> Tuple[Type[PreTrainedModel], PretrainedConfig]:
+    def _get_config(
+        self,
+        model_type: Optional[str],
+        pretrained_model: Optional[str],
+        config_args: Dict[str, Any],
+    ) -> PretrainedConfig:
         config_args = {
-            "activation_function": self.args.activation_function,
-            "n_head": self.args.n_head,
-            "n_layer": self.args.n_layer,
             "bos_token_id": self.tokenizer.bos_token_id,
             "eos_token_id": self.tokenizer.eos_token_id,
             "vocab_size": len(self.tokenizer),
             "use_cache": True,
-            # These are not used by all models, but ok to set anyway as they will just be ignored.
-            "attention_type": self.args.attention_type,
-            "cuda_graph": self.args.cuda_graph,
-            "inference_runner": self.args.inference_runner,
+            "return_unused_kwargs": True,
+            **config_args,
         }
 
-        if self.args.model_class.lower() == "bloom":
-            config_args["attention_softmax_in_fp32"] = True
-            config_args["hidden_size"] = self.args.hidden_size
-            model_class = BloomForCausalLM
-        elif self.args.model_class.lower() == "gpt2":
-            config_args["n_embd"] = self.args.hidden_size
-            config_args["n_positions"] = self.args.n_positions
-            model_class = GPT2LMHeadModel
-        elif self.args.model_class.lower() == "gpt_bigcode":
-            config_args["n_embd"] = self.args.hidden_size
-            config_args["n_positions"] = self.args.n_positions
-            model_class = GPTBigCodeLMHeadModel
+        if model_type is None:
+            if pretrained_model is None:
+                raise ValueError("You need to provide either --model_type or --pretrained_model")
+            config_class = AutoConfig
+        elif model_type not in CONFIG_MAPPING:
+            raise ValueError(f"Unknown model type: {model_type}")
         else:
-            raise NotImplementedError()
-        # Use defaults or pretrained config for missing arguments.
-        config_args = {key: value for key, value in config_args.items() if value is not None}
-        if self.args.pretrained_model is None:
-            config = model_class.config_class(**config_args)
-        else:
-            config = model_class.config_class.from_pretrained(self.args.pretrained_model, **config_args)
+            config_class = CONFIG_MAPPING[model_type]
 
-        return model_class, config
+        if pretrained_model is None:
+            config, unused = config_class.from_dict({}, **config_args)
+        else:
+            config, unused = config_class.from_pretrained(pretrained_model, **config_args)
+
+        if unused:
+            raise ValueError(f"There were unused configuration parameters: {tuple(unused)}")
+
+        return config
 
     def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], Dict[str, Any]]:
         t0 = time.perf_counter()
@@ -186,3 +220,6 @@ class Pipeline:
             "Throughput (end to end)": f"{throughput:.2f} tokens/s",
             "Token time (end to end)": f"{format_ms(throughput ** -1)}/token",
         }
+
+    def get_initialization_metrics(self):
+        return {f"Initialization time ({key})": format_ms(value) for key, value in self.initialization_metrics.items()}

@@ -1,6 +1,7 @@
+import typing
 import warnings
 from argparse import ArgumentParser, Namespace
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 import torch
 
@@ -9,17 +10,10 @@ def get_arg_parser() -> ArgumentParser:
     parser = ArgumentParser()
 
     # Model
-    parser.add_argument("--model_class", default="gpt2")
+    parser.add_argument("--model_type")
     parser.add_argument("--pretrained_model")
     parser.add_argument("--tokenizer", default="gpt2")
-    parser.add_argument("--hidden_size", type=int)
-    parser.add_argument("--attention_type", type=int)
-    parser.add_argument("--n_positions", type=int)
-    parser.add_argument("--n_head", type=int)
-    parser.add_argument("--n_layer", type=int)
-    parser.add_argument("--activation_function")
-    parser.add_argument("--inference_runner", action="store_true", default=None)
-    parser.add_argument("--cuda_graph", action="store_true", default=None)
+    parser.add_argument("config_args", nargs="*")
 
     # Runtime
     parser.add_argument("--pipeline_class", default="HF_Pipeline")
@@ -53,28 +47,35 @@ def get_arg_parser() -> ArgumentParser:
     return parser
 
 
-def check_unused(args: Namespace, defaults: Dict[str, Any], enforce=False):
-    for name, default in defaults.items():
-        val = getattr(args, name)
-        is_default = val is None if default is None else val == default
-        if not is_default:
-            warnings.warn(
-                f"{'Invalid' if enforce else 'Unexpected'} argument: --{name} (value ="
-                f" {val}, {'setting to' if enforce else 'expected'} {default})"
-            )
-            if enforce:
-                setattr(args, name, default)
+def parse_config_args(config_args: List[str]) -> typing.Dict[str, Any]:
+    parsed_config_args = {}
+    for config_arg in config_args:
+        try:
+            key, value = [x.strip() for x in config_arg.split("=")]
+        except ValueError:
+            raise ValueError(f"Cannot parse argument: {config_arg}")
+        if value.lower() == "true":
+            value = True
+        elif value.lower() == "false":
+            value = False
+        elif value.lower() == "none":
+            value = None
+        else:
+            try:
+                value = int(value)
+            except ValueError:
+                try:
+                    value = float(value)
+                except ValueError:
+                    pass
+        parsed_config_args[key.strip()] = value
+    return parsed_config_args
 
 
 def parse_args(argv=None, parser: ArgumentParser = None) -> Namespace:
     if parser is None:
         parser = get_arg_parser()
     args = parser.parse_args(argv)
-
-    if args.warmup is None:
-        args.warmup = args.profile
-
-    if args.max_log_outputs is None:
-        args.max_log_outputs = args.batch_size
+    args.config_args = parse_config_args(args.config_args)
 
     return args
