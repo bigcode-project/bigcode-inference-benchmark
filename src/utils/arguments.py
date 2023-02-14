@@ -30,9 +30,6 @@ def get_arg_parser() -> ArgumentParser:
     # Cleanup
     parser.add_argument("--clear_every_run", action="store_true")
 
-    # Deepspeed
-    parser.add_argument("--no_inject_kernel", dest="inject_kernel", action="store_false")
-
     # Benchmark cycles
     parser.add_argument("--skip", type=int, default=1)
     parser.add_argument("--warmup", type=int, default=None)

@@ -2,8 +2,7 @@ import contextlib
 import gc
 import logging
 import time
-from argparse import Namespace
-from typing import Any, Dict, List, Optional, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
@@ -182,9 +181,7 @@ class Pipeline:
 
         output_tokens = output.sequences
 
-        input_token_lengths = [x.shape[0] for x in input_tokens.input_ids]
-        output_token_lengths = [x.shape[0] for x in output_tokens]
-        num_generated_tokens = [o - i for i, o in zip(input_token_lengths, output_token_lengths)]
+        num_generated_tokens = sum(o.shape[0] - i.shape[0] for i, o in zip(input_tokens.input_ids, output_tokens))
 
         output_text = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
         t3 = time.perf_counter()
