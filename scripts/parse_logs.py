@@ -7,6 +7,9 @@ from markdownTable import markdownTable
 from pandas import DataFrame
 
 
+# TODO: Update this script
+
+
 def get_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
 

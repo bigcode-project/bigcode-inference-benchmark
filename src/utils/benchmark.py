@@ -116,7 +116,6 @@ def benchmark_end_to_end(
     log_rank_n("*** Benchmarking stats:", logger.info)
     log_dict(
         {
-            # "Model initialization time": format_ms(initialization_time),
             "Model parameters": pipeline.get_num_parameters(),
             "Batch size": len(inputs),
             **generate_kwargs,
