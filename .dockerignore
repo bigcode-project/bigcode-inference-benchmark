@@ -2,3 +2,4 @@
 !src
 !transformers
 !requirements.txt
+!Makefile

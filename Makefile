@@ -14,12 +14,12 @@ N_POSITION ?= 2048
 MAX_INPUT_LENGTH ?= -1
 
 RUN_HF := python3 src/main.py --pipeline_class=HF_Pipeline
-RUN_DF := deepspeed --num_gpus 1 src/main.py --pipeline_class=DF_Pipeline
-EXP_ARGS := --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH}
-COMMON_ARGS := n_head=${N_HEAD} n_layer=${N_LAYER} ${EXP_ARGS}
-BLOOM_ARGS := --model_type=bloom hidden_size=${HIDDEN_SIZE} ${COMMON_ARGS}
-GPT2_ARGS := --model_type=gpt2 n_embed=${HIDDEN_SIZE} ${COMMON_ARGS}
-BIGCODE_ARGS := --model_type=gpt_bigcode n_embed=${HIDDEN_SIZE} ${COMMON_ARGS}
+RUN_DS := deepspeed --num_gpus 1 src/main.py --pipeline_class=DF_Pipeline
+EXP_ARGS := --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} ${EXTRA_ARGS}
+COMMON_ARGS :=  ${EXP_ARGS} n_head=${N_HEAD} n_layer=${N_LAYER}
+BLOOM_ARGS := --model_type=bloom ${COMMON_ARGS} hidden_size=${HIDDEN_SIZE}
+GPT2_ARGS := --model_type=gpt2 ${COMMON_ARGS} n_embd=${HIDDEN_SIZE}
+BIGCODE_ARGS := --model_type=gpt_bigcode ${COMMON_ARGS} n_embd=${HIDDEN_SIZE}
 
 
 .PHONY: install
@@ -35,7 +35,7 @@ bloom:
 bloom-ds:
 	${RUN_DS} ${BLOOM_ARGS}
 
-.PHONY: gpt2-ds
+.PHONY: gpt2
 gpt2:
 	${RUN_HF} ${GPT2_ARGS}
 
@@ -43,14 +43,18 @@ gpt2:
 gpt2-ds:
 	${RUN_DS} ${GPT2_ARGS}
 
-.PHONY: bigcode_mha
-bigcode_mha:
+.PHONY: gpt-bigcode-mha
+gpt-bigcode-mha:
 	${RUN_HF} ${BIGCODE_ARGS} attention_type=1
 
-.PHONY: bigcode_mqa1
-bigcode_mqa1:
+.PHONY: gpt-bigcode-mqa1
+gpt-bigcode-mqa1:
 	${RUN_HF} ${BIGCODE_ARGS} attention_type=2
 
-.PHONY: bigcode_mqa2
-bigcode_mqa2:
+.PHONY: gpt-bigcode-mqa2
+gpt-bigcode-mqa2:
 	${RUN_HF} ${BIGCODE_ARGS} attention_type=3
+
+.PHONY: santacoder
+santacoder:
+	${RUN_HF} --pretrained_model=bigcode/santacoder-fast-inference --tokenizer=bigcode/santacoder ${EXP_ARGS}

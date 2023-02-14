@@ -119,7 +119,7 @@ def benchmark_end_to_end(
             "Model parameters": pipeline.get_num_parameters(),
             "Batch size": len(inputs),
             **generate_kwargs,
-            **pipeline.get_initialization_metrics,
+            **pipeline.get_initialization_metrics(),
         },
         logger.info,
     )

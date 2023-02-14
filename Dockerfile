@@ -21,4 +21,5 @@ COPY --chown=$USERNAME transformers/ ./transformers
 # Stock version of pip doesn't work with editable transformers.
 RUN pip install --upgrade pip --no-cache-dir && pip install -r requirements.txt --no-cache-dir
 
+COPY --chown=$USERNAME Makefile .
 COPY --chown=$USERNAME src/ ./src

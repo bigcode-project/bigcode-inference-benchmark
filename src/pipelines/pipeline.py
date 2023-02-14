@@ -139,9 +139,6 @@ class Pipeline:
         config_args: Dict[str, Any],
     ) -> PretrainedConfig:
         config_args = {
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "vocab_size": len(self.tokenizer),
             "use_cache": True,
             "return_unused_kwargs": True,
             **config_args,
@@ -157,6 +154,13 @@ class Pipeline:
             config_class = CONFIG_MAPPING[model_type]
 
         if pretrained_model is None:
+            config_args.update(
+                {
+                    "bos_token_id": self.tokenizer.bos_token_id,
+                    "eos_token_id": self.tokenizer.eos_token_id,
+                    "vocab_size": len(self.tokenizer),
+                }
+            )
             config, unused = config_class.from_dict({}, **config_args)
         else:
             config, unused = config_class.from_pretrained(pretrained_model, **config_args)
