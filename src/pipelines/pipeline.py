@@ -1,16 +1,22 @@
+import contextlib
 import gc
 import logging
 import time
-from argparse import Namespace
-from typing import Any, Dict, List, Tuple, Type
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
-from src.utils.arguments import check_unused
 from src.utils.fast_init import fast_init
 from src.utils.logging import format_ms, log_rank_n
-from transformers import AutoTokenizer, BloomForCausalLM, GPT2LMHeadModel, PretrainedConfig, PreTrainedModel
+from transformers import (
+    CONFIG_MAPPING,
+    AutoConfig,
+    AutoModelForCausalLM,
+    AutoTokenizer,
+    PretrainedConfig,
+    PreTrainedModel,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -31,69 +37,138 @@ METRIC_KEYS = (
 
 
 class Pipeline:
-    def __init__(self, args: Namespace) -> None:
+    def __init__(
+        self,
+        *,
+        model_type: Optional[str] = None,
+        pretrained_model: Optional[str] = None,
+        config_args: Dict[str, Any],
+        tokenizer: str,
+        device: torch.device,
+        dtype: torch.dtype,
+        fast_init: bool = True,
+    ):
+        self.initialization_metrics = {}
         log_rank_n("*** Setting up tokenizer", logger.info)
-        self.tokenizer = AutoTokenizer.from_pretrained("gpt2")
+        t0 = time.perf_counter()
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+
         self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        t1 = time.perf_counter()
 
-        self.device = args.device
+        self.device = device
+        self.dtype = dtype
+        self.is_int8 = self.dtype == torch.int8
+        self.fast_init = fast_init
+        if self.is_int8 and self.device != torch.device("cuda"):
+            raise ValueError(f"Model quantization not supported on device {self.device}")
 
-        model_class, config = self.get_config(args)
-        is_int8 = args.dtype == torch.int8
-        if is_int8:
-            check_unused(args, {"device": torch.device("cuda")}, enforce=True)
-        torch_dtype = torch.float16 if is_int8 else args.dtype
+        self.config = self._get_config(model_type, pretrained_model, config_args)
+        t2 = time.perf_counter()
 
-        log_rank_n("*** Creating model", logger.info)
-        with fast_init(self.device):
-            self.model = model_class._from_config(config=config, torch_dtype=torch_dtype)
-        log_rank_n("*** Moving to device", logger.info)
-        self.model.to(self.device)
-        log_rank_n("*** Initializing weights", logger.info)
-        # Initialization is ~1000x faster on GPU.
-        self.model.init_weights()
+        logger.info(f"Model configuration: {self.config}")
 
-        # Int8 can only be obtained by reloading a pretrained model
-        if is_int8:
-            log_rank_n("*** Saving model", logger.info)
-            self.model.save_pretrained("tmp")
-            self.model = None
-            gc.collect()
-            torch.cuda.empty_cache()
-            log_rank_n("*** Reloading model in int8", logger.info)
-            with fast_init(self.device):
-                self.model = model_class.from_pretrained(
-                    "tmp",
-                    load_in_8bit=True,
-                    device_map="auto",
-                )
+        if pretrained_model is None:
+            self.model = self._create_model()
+            if self.is_int8:
+                self._reload_model()
+        else:
+            self.model = self._load_pretrained(pretrained_model)
 
         self.model.eval()
+        t3 = time.perf_counter()
+        self.initialization_metrics["tokenizer"] = t1 - t0
+        self.initialization_metrics["configuration"] = t2 - t1
+        self.initialization_metrics["total"] = t3 - t0
 
-    def get_config(self, args) -> Tuple[Type[PreTrainedModel], PretrainedConfig]:
+    def _create_model(self) -> PreTrainedModel:
+        t0 = time.perf_counter()
+        log_rank_n("*** Creating model", logger.info)
+        with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
+            torch_dtype = torch.float16 if self.is_int8 else self.dtype
+            model = AutoModelForCausalLM.from_config(config=self.config, torch_dtype=torch_dtype)
+        t1 = time.perf_counter()
+        log_rank_n("*** Moving to device", logger.info)
+        model.to(self.device)
+        t2 = time.perf_counter()
+        log_rank_n("*** Initializing weights", logger.info)
+        # Initialization is ~1000x faster on GPU.
+        model.init_weights()
+        t3 = time.perf_counter()
+        self.initialization_metrics["model initialization"] = t1 - t0
+        self.initialization_metrics["move to device"] = t2 - t1
+        self.initialization_metrics["initialize weights"] = t3 - t2
+        return model
+
+    def _reload_model(self):
+        self._save_pretrained("tmp")
+        del self.model
+        gc.collect()
+        self.model = self._load_pretrained("tmp")
+
+    def _save_pretrained(self, pretrained_model: str):
+        t0 = time.perf_counter()
+        log_rank_n(f"*** Saving model to {pretrained_model}", logger.info)
+        t1 = time.perf_counter()
+        self.initialization_metrics["save model"] = t1 - t0
+        self.model.save_pretrained(pretrained_model)
+
+    def _load_pretrained(self, pretrained_model: str) -> PreTrainedModel:
+        t0 = time.perf_counter()
+        log_rank_n(f"*** Loading model from {pretrained_model}", logger.info)
+        kwargs = {"load_in_8bit": True, "device_map": "auto"} if self.is_int8 else {"torch_dtype": self.dtype}
+        with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
+            model = AutoModelForCausalLM.from_pretrained(
+                pretrained_model,
+                config=self.config,
+                **kwargs,
+            )
+        t1 = time.perf_counter()
+        self.initialization_metrics["load pretrained model"] = t1 - t0
+        if not self.is_int8:
+            log_rank_n("*** Moving to device", logger.info)
+            model = model.to(self.device)
+            t2 = time.perf_counter()
+            self.initialization_metrics["move to device"] = t2 - t1
+        return model
+
+    def _get_config(
+        self,
+        model_type: Optional[str],
+        pretrained_model: Optional[str],
+        config_args: Dict[str, Any],
+    ) -> PretrainedConfig:
         config_args = {
-            "activation_function": args.activation_function,
-            "n_head": args.n_head,
-            "n_layer": args.n_layer,
-            "bos_token_id": self.tokenizer.bos_token_id,
-            "eos_token_id": self.tokenizer.eos_token_id,
-            "vocab_size": len(self.tokenizer),
             "use_cache": True,
+            "return_unused_kwargs": True,
+            **config_args,
         }
-        if args.model_class.lower() == "bloom":
-            check_unused(args, {"attention_type": 1, "n_positions": None})
-            config_args["attention_softmax_in_fp32"] = True
-            config_args["hidden_size"] = args.hidden_size
-            model_class = BloomForCausalLM
-        elif args.model_class.lower() == "gpt2":
-            config_args["attention_type"] = args.attention_type
-            config_args["n_embd"] = args.hidden_size
-            config_args["n_positions"] = args.n_positions
-            model_class = GPT2LMHeadModel
-        else:
-            raise NotImplementedError()
 
-        return model_class, model_class.config_class(**config_args)
+        if model_type is None:
+            if pretrained_model is None:
+                raise ValueError("You need to provide either --model_type or --pretrained_model")
+            config_class = AutoConfig
+        elif model_type not in CONFIG_MAPPING:
+            raise ValueError(f"Unknown model type: {model_type}")
+        else:
+            config_class = CONFIG_MAPPING[model_type]
+
+        if pretrained_model is None:
+            config_args.update(
+                {
+                    "bos_token_id": self.tokenizer.bos_token_id,
+                    "eos_token_id": self.tokenizer.eos_token_id,
+                    "vocab_size": len(self.tokenizer),
+                }
+            )
+            config, unused = config_class.from_dict({}, **config_args)
+        else:
+            config, unused = config_class.from_pretrained(pretrained_model, **config_args)
+
+        if unused:
+            raise ValueError(f"There were unused configuration parameters: {tuple(unused)}")
+
+        return config
 
     def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], Dict[str, Any]]:
         t0 = time.perf_counter()
@@ -104,15 +179,13 @@ class Pipeline:
                 input_tokens[t] = input_tokens[t].to(self.device)
 
         t1 = time.perf_counter()
-        with torch.no_grad():
+        with torch.inference_mode():
             output = self.model.generate(**input_tokens, return_dict_in_generate=True, **generate_kwargs)
         t2 = time.perf_counter()
 
         output_tokens = output.sequences
 
-        input_token_lengths = [x.shape[0] for x in input_tokens.input_ids]
-        output_token_lengths = [x.shape[0] for x in output_tokens]
-        num_generated_tokens = [o - i for i, o in zip(input_token_lengths, output_token_lengths)]
+        num_generated_tokens = sum(o.shape[0] - i.shape[0] for i, o in zip(input_tokens.input_ids, output_tokens))
 
         output_text = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
         t3 = time.perf_counter()
@@ -148,3 +221,6 @@ class Pipeline:
             "Throughput (end to end)": f"{throughput:.2f} tokens/s",
             "Token time (end to end)": f"{format_ms(throughput ** -1)}/token",
         }
+
+    def get_initialization_metrics(self):
+        return {f"Initialization time ({key})": format_ms(value) for key, value in self.initialization_metrics.items()}
