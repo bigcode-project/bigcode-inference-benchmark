@@ -1,6 +1,7 @@
 import contextlib
 import gc
 import logging
+import time
 from typing import List, Union
 
 import torch
@@ -91,8 +92,21 @@ def benchmark_end_to_end(
     else:
         profiler = contextlib.nullcontext()
 
+    benchmark_stats = {
+        "Model parameters": pipeline.get_num_parameters(),
+        "Batch size": len(inputs),
+        **generate_kwargs,
+        **pipeline.get_initialization_metrics(),
+        "Warmup cycles": skip + warmup,
+        "Benchmark cycles": cycles,
+        "Total cycles": skip + warmup + cycles,
+    }
+    t0 = time.perf_counter()
     with profiler as p:
         for step in range(skip + warmup + cycles):
+            if step == skip + warmup:
+                t1 = time.perf_counter()
+                benchmark_stats["Warmup time"] = format_ms(t1 - t0)
             generated_text, metrics = pipeline(inputs, **generate_kwargs)
             if profile:
                 p.step()
@@ -108,18 +122,13 @@ def benchmark_end_to_end(
                 torch.cuda.synchronize()
                 gc.collect()
                 torch.cuda.empty_cache()
+    t2 = time.perf_counter()
+    benchmark_stats["Benchmark time"] = format_ms(t2 - t1)
+    benchmark_stats["Total time"] = format_ms(t2 - t0)
 
     if len(all_metrics) > 0:
         log_rank_n("*** Performance metrics:", logger.info)
         log_dict(pipeline.aggregate_and_format_metrics(all_metrics), logger.info)
 
     log_rank_n("*** Benchmarking stats:", logger.info)
-    log_dict(
-        {
-            "Model parameters": pipeline.get_num_parameters(),
-            "Batch size": len(inputs),
-            **generate_kwargs,
-            **pipeline.get_initialization_metrics(),
-        },
-        logger.info,
-    )
+    log_dict(benchmark_stats, logger.info)
