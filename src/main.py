@@ -19,6 +19,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         device=args.device,
         dtype=args.dtype,
         fast_init=args.fast_init,
+        trust_remote_code=args.trust_remote_code
     )
 
     benchmark_end_to_end(

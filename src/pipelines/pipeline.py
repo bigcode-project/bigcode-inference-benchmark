@@ -47,6 +47,7 @@ class Pipeline:
         device: torch.device,
         dtype: torch.dtype,
         fast_init: bool = True,
+        trust_remote_code: bool=False,
     ):
         self.initialization_metrics = {}
         log_rank_n("*** Setting up tokenizer", logger.info)
@@ -60,6 +61,7 @@ class Pipeline:
         self.dtype = dtype
         self.is_int8 = self.dtype == torch.int8
         self.fast_init = fast_init
+        self.trust_remote_code=trust_remote_code
         if self.is_int8 and self.device != torch.device("cuda"):
             raise ValueError(f"Model quantization not supported on device {self.device}")
 
@@ -121,6 +123,7 @@ class Pipeline:
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model,
                 config=self.config,
+                trust_remote_code=self.trust_remote_code,
                 **kwargs,
             )
         t1 = time.perf_counter()
@@ -163,7 +166,11 @@ class Pipeline:
             )
             config, unused = config_class.from_dict({}, **config_args)
         else:
-            config, unused = config_class.from_pretrained(pretrained_model, **config_args)
+            config, unused = config_class.from_pretrained(
+                pretrained_model,
+                trust_remote_code=self.trust_remote_code,
+                **config_args
+            )
 
         if unused:
             raise ValueError(f"There were unused configuration parameters: {tuple(unused)}")
