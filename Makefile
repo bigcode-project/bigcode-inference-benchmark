@@ -62,3 +62,7 @@ santacoder:
 .PHONY: santacoder
 santacoder:
 	${RUN_HF} --pretrained_model=bigcode/santacoder-fast-inference --tokenizer=bigcode/santacoder ${EXP_ARGS}
+
+.PHONY: optimized-santacoder
+optimized-santacoder:
+	${RUN_HF} --pretrained_model=olivierdehaene/optimized-santacoder --tokenizer=bigcode/santacoder --trust_remote_code ${EXP_ARGS}

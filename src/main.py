@@ -14,12 +14,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     pipeline = pipeline_class(
         model_type=args.model_type,
         pretrained_model=args.pretrained_model,
+        pretrained_config=args.pretrained_config,
         config_args=args.config_args,
         tokenizer=args.tokenizer,
         device=args.device,
         dtype=args.dtype,
         fast_init=args.fast_init,
-        trust_remote_code=args.trust_remote_code
+        trust_remote_code=args.trust_remote_code,
     )
 
     benchmark_end_to_end(
