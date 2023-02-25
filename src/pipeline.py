@@ -9,7 +9,8 @@ import numpy as np
 import torch
 
 from src.fast_init import fast_init
-from src.utils import format_ms, log_rank_n, parse_revision
+from src.metrics import Metrics
+from src.utils import log_rank_n, parse_revision
 from transformers import (
     CONFIG_MAPPING,
     AutoConfig,
@@ -21,20 +22,6 @@ from transformers import (
 
 
 logger = logging.getLogger(__name__)
-
-NUM_GENERATED_TOKENS = "num_generated_tokens"
-TOKENIZE_TIME = "tokenize_time"
-MODEL_TIME = "model_time"
-DECODE_TIME = "decode_time"
-END_TO_END_TIME = "end_to_end_time"
-
-METRIC_KEYS = (
-    NUM_GENERATED_TOKENS,
-    TOKENIZE_TIME,
-    MODEL_TIME,
-    DECODE_TIME,
-    END_TO_END_TIME,
-)
 
 
 class Pipeline:
@@ -51,7 +38,7 @@ class Pipeline:
         fast_init: bool = True,
         trust_remote_code: bool = False,
     ):
-        self.initialization_metrics = {}
+        self.global_metrics = {}
         log_rank_n("*** Setting up tokenizer", logger.info)
         t0 = time.perf_counter()
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
@@ -81,9 +68,9 @@ class Pipeline:
 
         self.model.eval()
         t3 = time.perf_counter()
-        self.initialization_metrics["tokenizer"] = t1 - t0
-        self.initialization_metrics["configuration"] = t2 - t1
-        self.initialization_metrics["total"] = t3 - t0
+        self.global_metrics[Metrics.INIT_TOKEN] = t1 - t0
+        self.global_metrics[Metrics.INIT_CONFIG] = t2 - t1
+        self.global_metrics[Metrics.INIT_TOTAL] = t3 - t0
 
     def _create_model(self) -> PreTrainedModel:
         t0 = time.perf_counter()
@@ -101,9 +88,9 @@ class Pipeline:
         # Initialization is ~1000x faster on GPU.
         model.init_weights()
         t3 = time.perf_counter()
-        self.initialization_metrics["model initialization"] = t1 - t0
-        self.initialization_metrics["move to device"] = t2 - t1
-        self.initialization_metrics["initialize weights"] = t3 - t2
+        self.global_metrics[Metrics.INIT_CREATE] = t1 - t0
+        self.global_metrics[Metrics.INIT_DEVICE] = t2 - t1
+        self.global_metrics[Metrics.INIT_WEIGHTS] = t3 - t2
 
         return model
 
@@ -117,7 +104,7 @@ class Pipeline:
         t0 = time.perf_counter()
         log_rank_n(f"*** Saving model to {pretrained_model}", logger.info)
         t1 = time.perf_counter()
-        self.initialization_metrics["save model"] = t1 - t0
+        self.global_metrics[Metrics.INIT_SAVE] = t1 - t0
         self.model.save_pretrained(pretrained_model)
 
     def _load_pretrained(self, pretrained_model: str) -> PreTrainedModel:
@@ -134,12 +121,12 @@ class Pipeline:
                 **kwargs,
             )
         t1 = time.perf_counter()
-        self.initialization_metrics["load pretrained model"] = t1 - t0
+        self.global_metrics["load pretrained model"] = t1 - t0
         if not self.is_int8:
             log_rank_n("*** Moving to device", logger.info)
             model = model.to(self.device)
             t2 = time.perf_counter()
-            self.initialization_metrics["move to device"] = t2 - t1
+            self.global_metrics[Metrics.INIT_DEVICE] = t2 - t1
         return model
 
     def _get_config(
@@ -205,11 +192,11 @@ class Pipeline:
         t3 = time.perf_counter()
 
         metrics = {
-            NUM_GENERATED_TOKENS: num_generated_tokens,
-            TOKENIZE_TIME: t1 - t0,
-            MODEL_TIME: t2 - t1,
-            DECODE_TIME: t3 - t2,
-            END_TO_END_TIME: t3 - t0,
+            Metrics.TOKENS_AVERAGE: num_generated_tokens,
+            Metrics.LATENCY_TOKEN: t1 - t0,
+            Metrics.LATENCY_MODEL: t2 - t1,
+            Metrics.LATENCY_DECODE: t3 - t2,
+            Metrics.LATENCY_E2E: t3 - t0,
         }
 
         return output_text, metrics
@@ -217,28 +204,32 @@ class Pipeline:
     def get_num_parameters(self) -> int:
         return sum(p.numel() for p in self.model.parameters())
 
-    def aggregate_and_format_metrics(self, metrics: List[Dict[str, Any]]):
-        all_metrics = {key: [metrics_[key] for metrics_ in metrics if key in metrics_] for key in METRIC_KEYS}
-        mean_metrics = {key: np.mean(all_metrics[key]).item() for key in METRIC_KEYS if len(all_metrics[key]) > 0}
-        throughput = mean_metrics[NUM_GENERATED_TOKENS] / mean_metrics[END_TO_END_TIME]
-        model_throughput = mean_metrics[NUM_GENERATED_TOKENS] / mean_metrics[MODEL_TIME]
+    def aggregate_metrics(self, metrics: List[Dict[str, Any]]):
+        all_metrics = {
+            key: [metrics_[key] for metrics_ in metrics if key in metrics_]
+            for key in (
+                Metrics.TOKENS_AVERAGE,
+                Metrics.LATENCY_TOKEN,
+                Metrics.LATENCY_MODEL,
+                Metrics.LATENCY_DECODE,
+                Metrics.LATENCY_E2E,
+            )
+        }
+        mean_metrics = {key: np.mean(value).item() for key, value in all_metrics.items() if len(value) > 0}
+        throughput = mean_metrics[Metrics.TOKENS_AVERAGE] / mean_metrics[Metrics.LATENCY_E2E]
+        model_throughput = mean_metrics[Metrics.TOKENS_AVERAGE] / mean_metrics[Metrics.LATENCY_MODEL]
 
         return {
-            "Latency (end to end)": format_ms(mean_metrics[END_TO_END_TIME]),
-            "Latency (tokenization)": format_ms(mean_metrics[TOKENIZE_TIME]),
-            "Latency (model)": format_ms(mean_metrics[MODEL_TIME]),
-            "Latency (decode)": format_ms(mean_metrics[DECODE_TIME]),
-            "Latency (max)": format_ms(max(all_metrics[END_TO_END_TIME])),
-            "Latency (min)": format_ms(min(all_metrics[END_TO_END_TIME])),
-            "Tokens generated (average)": f"{mean_metrics[NUM_GENERATED_TOKENS]:.0f}",
-            "Tokens generated (total)": f"{np.sum(all_metrics[NUM_GENERATED_TOKENS]).item():.0f}",
-            "Throughput (model)": f"{model_throughput:.2f} tokens/s",
-            "Throughput (end to end)": f"{throughput:.2f} tokens/s",
-            "Token time (end to end)": f"{format_ms(throughput ** -1)}/token",
+            **self.global_metrics,
+            **mean_metrics,
+            Metrics.LATENCY_MAX: max(all_metrics[Metrics.LATENCY_E2E]),
+            Metrics.LATENCY_MIN: min(all_metrics[Metrics.LATENCY_E2E]),
+            Metrics.LATENCY_STD: np.std(all_metrics[Metrics.LATENCY_E2E]).item(),
+            Metrics.TOKENS_TOTAL: np.sum(all_metrics[Metrics.TOKENS_AVERAGE]).item(),
+            Metrics.THROUGHPUT_MODEL: model_throughput,
+            Metrics.THROUGHPUT_E2E: throughput,
+            Metrics.TOKEN_TIME: throughput**-1,
         }
-
-    def get_initialization_metrics(self):
-        return {f"Initialization time ({key})": format_ms(value) for key, value in self.initialization_metrics.items()}
 
 
 class HF_Pipeline(Pipeline):

@@ -1,10 +1,9 @@
 import copy
 import logging
+import logging.config
 import math
-import time
 import typing
-from functools import partial
-from typing import Any, Callable, List, Optional, Tuple, Union
+from typing import Any, Callable, List, Optional, Tuple
 
 from torch import distributed as dist
 
@@ -81,14 +80,6 @@ def log_rank_n(msg: str, logger: Callable = logging.info, rank: int = 0):
 def log_dict(data: dict, logger: Callable = logging.info, rank: int = 0):
     for key, value in data.items():
         log_rank_n(f"{key}: {value}", logger, rank)
-
-
-def format_ms(t: float):
-    return f"{1000 * t:.2f} ms"
-
-
-def format_mib(m: float):
-    return f"{m/2**20:.0f} MiB"
 
 
 dummy_input_sentences = [

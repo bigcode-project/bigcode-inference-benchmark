@@ -1,22 +1,16 @@
 import contextlib
 import gc
+import json
 import time
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
 from typing import List, Optional
 
 import torch
 
-from src.pipeline import get_pipeline_class
+from src.metrics import Metrics
+from src.pipeline import Pipeline, get_pipeline_class
 from src.profile import get_profiler, logger
-from src.utils import (
-    configure_logging,
-    format_mib,
-    format_ms,
-    get_dummy_batch,
-    log_dict,
-    log_rank_n,
-    parse_config_args,
-)
+from src.utils import configure_logging, get_dummy_batch, log_dict, log_rank_n, parse_config_args
 
 
 def get_arg_parser() -> ArgumentParser:
@@ -55,11 +49,13 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--full_trace", action="store_true")
     parser.add_argument("--show_op_names", action="store_true")
+    parser.add_argument("--save")
 
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    t0 = time.perf_counter()
     parser = get_arg_parser()
     args = parser.parse_args(argv)
     config_args = parse_config_args(args.config_args)
@@ -69,7 +65,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     max_log_outputs = args.batch_size if args.max_log_outputs is None else args.max_log_outputs
 
     pipeline_class = get_pipeline_class(args.pipeline_class)
-    pipeline = pipeline_class(
+    pipeline: Pipeline = pipeline_class(
         model_type=args.model_type,
         pretrained_model=args.pretrained_model,
         pretrained_config=args.pretrained_config,
@@ -94,27 +90,26 @@ def main(argv: Optional[List[str]] = None) -> None:
     else:
         profiler = contextlib.nullcontext()
 
-    benchmark_stats = {
+    benchmark_metrics = {
+        **generate_kwargs,
         "Model parameters": pipeline.get_num_parameters(),
         "Batch size": len(inputs),
-        **generate_kwargs,
-        **pipeline.get_initialization_metrics(),
         "Warmup cycles": args.skip + warmup,
         "Benchmark cycles": args.cycles,
         "Total cycles": args.skip + warmup + args.cycles,
     }
 
     if pipeline.device.type == "cuda":
-        benchmark_stats["Initial memory used"] = format_mib(torch.cuda.memory_allocated())
-        benchmark_stats["Initial memory reserved"] = format_mib(torch.cuda.memory_reserved())
+        benchmark_metrics[Metrics.MEMORY_USED_INIT] = torch.cuda.memory_allocated()
+        benchmark_metrics[Metrics.MEMORY_RESERVED_INIT] = torch.cuda.memory_reserved()
         torch.cuda.reset_peak_memory_stats()
 
-    t0 = time.perf_counter()
+    t1 = time.perf_counter()
     with profiler as p:
         for step in range(args.skip + warmup + args.cycles):
             if step == args.skip + warmup:
-                t1 = time.perf_counter()
-                benchmark_stats["Warmup time"] = format_ms(t1 - t0)
+                t2 = time.perf_counter()
+                benchmark_metrics[Metrics.RUNTIME_WARMUP] = t2 - t1
             generated_text, metrics = pipeline(inputs, **generate_kwargs)
             if args.profile:
                 p.step()
@@ -131,20 +126,32 @@ def main(argv: Optional[List[str]] = None) -> None:
                 gc.collect()
                 torch.cuda.empty_cache()
     if pipeline.device.type == "cuda":
-        benchmark_stats["Memory used"] = format_mib(torch.cuda.memory_allocated())
-        benchmark_stats["Memory reserved"] = format_mib(torch.cuda.memory_reserved())
-        benchmark_stats["Max memory used"] = format_mib(torch.cuda.max_memory_allocated())
-        benchmark_stats["Max memory reserved"] = format_mib(torch.cuda.max_memory_reserved())
+        benchmark_metrics[Metrics.MEMORY_USED_END] = torch.cuda.memory_allocated()
+        benchmark_metrics[Metrics.MEMORY_RESERVED_END] = torch.cuda.memory_reserved()
+        benchmark_metrics[Metrics.MEMORY_USED_MAX] = torch.cuda.max_memory_allocated()
+        benchmark_metrics[Metrics.MEMORY_RESERVED_MAX] = torch.cuda.max_memory_reserved()
 
-    t2 = time.perf_counter()
-    benchmark_stats["Benchmark time"] = format_ms(t2 - t1)
-    benchmark_stats["Total time"] = format_ms(t2 - t0)
+    t3 = time.perf_counter()
+    benchmark_metrics[Metrics.RUNTIME_BENCHMARK] = t3 - t2
+    benchmark_metrics[Metrics.RUNTIME_TOTAL] = t3 - t0
 
     if len(all_metrics) > 0:
-        benchmark_stats.update(pipeline.aggregate_and_format_metrics(all_metrics))
+        benchmark_metrics.update(pipeline.aggregate_and_format_metrics(all_metrics))
+
+    benchmark_metrics = Metrics.reorder_metrics(benchmark_metrics)
 
     log_rank_n("*** Benchmark results:", logger.info)
-    log_dict(benchmark_stats, logger.info)
+    log_dict(Metrics.format_metrics(benchmark_metrics), logger.info)
+
+    if args.save:
+        with open(args.save, "w") as f:
+            json.dump(
+                {
+                    "config": pipeline.config.to_dict(),
+                    "results": benchmark_metrics,
+                },
+                f,
+            )
 
 
 if __name__ == "__main__":
