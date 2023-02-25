@@ -1,15 +1,15 @@
 import contextlib
 import gc
 import logging
+import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 import torch
 
-from src.utils.fast_init import fast_init
-from src.utils.logging import format_ms, log_rank_n
-from src.utils.utils import parse_revision
+from src.fast_init import fast_init
+from src.utils import format_ms, log_rank_n, parse_revision
 from transformers import (
     CONFIG_MAPPING,
     AutoConfig,
@@ -239,3 +239,43 @@ class Pipeline:
 
     def get_initialization_metrics(self):
         return {f"Initialization time ({key})": format_ms(value) for key, value in self.initialization_metrics.items()}
+
+
+class HF_Pipeline(Pipeline):
+    pass
+
+
+class DS_Pipeline(Pipeline):
+    def __init__(self, **kwargs):
+        import deepspeed
+
+        super().__init__(**kwargs)
+
+        if self.device != torch.device("cuda"):
+            raise ValueError(f"Deepspeed does not support device {self.device}")
+
+        if self.dtype not in (torch.float32, torch.float16, torch.bfloat16):
+            raise ValueError(f"Deepspeed does not support dtype {self.dtype}")
+
+        if self.config.model_type not in ("bloom", "gpt2"):
+            raise ValueError(f"Deepspeed does not support model type {self.config.model_type}")
+
+        self.model = deepspeed.init_inference(
+            self.model,
+            mp_size=int(os.getenv("WORLD_SIZE", "1")),
+            # base_dir="./",
+            dtype=self.dtype,
+            replace_with_kernel_inject=True,
+        )
+
+
+_PIPELINE_CLASS_MAP = {
+    "HF_Pipeline": HF_Pipeline,
+    "DS_Pipeline": DS_Pipeline,
+}
+
+
+def get_pipeline_class(name):
+    if name not in _PIPELINE_CLASS_MAP:
+        raise NotImplementedError(f"Unsupported pipeline class: {name}")
+    return _PIPELINE_CLASS_MAP[name]
