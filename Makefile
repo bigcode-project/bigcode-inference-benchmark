@@ -55,6 +55,14 @@ gpt-bigcode-mqa1:
 gpt-bigcode-mqa2:
 	${RUN_HF} ${BIGCODE_ARGS} attention_type=3
 
+.PHONY: santacoder-original
+santacoder:
+	${RUN_HF} --pretrained_model=bigcode/santacoder --tokenizer=bigcode/santacoder --trust_remote_code ${EXP_ARGS}
+
 .PHONY: santacoder
 santacoder:
 	${RUN_HF} --pretrained_model=bigcode/santacoder-fast-inference --tokenizer=bigcode/santacoder ${EXP_ARGS}
+
+.PHONY: optimized-santacoder
+optimized-santacoder:
+	${RUN_HF} --pretrained_model=olivierdehaene/optimized-santacoder --tokenizer=bigcode/santacoder --trust_remote_code ${EXP_ARGS}

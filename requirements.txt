@@ -1,5 +1,6 @@
 accelerate==0.15.0
 bitsandbytes
+safetensors
 deepspeed==0.7.7
 -e ./transformers
 

@@ -43,3 +43,7 @@ def log_dict(data: dict, logger: Callable = logging.info, rank: int = 0):
 
 def format_ms(t: float):
     return f"{1000 * t:.2f} ms"
+
+
+def format_mib(m: float):
+    return f"{m/2**20:.0f} MiB"

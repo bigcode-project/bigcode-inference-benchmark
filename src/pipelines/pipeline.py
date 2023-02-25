@@ -9,6 +9,7 @@ import torch
 
 from src.utils.fast_init import fast_init
 from src.utils.logging import format_ms, log_rank_n
+from src.utils.utils import parse_revision
 from transformers import (
     CONFIG_MAPPING,
     AutoConfig,
@@ -41,12 +42,14 @@ class Pipeline:
         self,
         *,
         model_type: Optional[str] = None,
+        pretrained_config: Optional[str] = None,
         pretrained_model: Optional[str] = None,
         config_args: Dict[str, Any],
         tokenizer: str,
         device: torch.device,
         dtype: torch.dtype,
         fast_init: bool = True,
+        trust_remote_code: bool = False,
     ):
         self.initialization_metrics = {}
         log_rank_n("*** Setting up tokenizer", logger.info)
@@ -60,10 +63,11 @@ class Pipeline:
         self.dtype = dtype
         self.is_int8 = self.dtype == torch.int8
         self.fast_init = fast_init
+        self.trust_remote_code = trust_remote_code
         if self.is_int8 and self.device != torch.device("cuda"):
             raise ValueError(f"Model quantization not supported on device {self.device}")
 
-        self.config = self._get_config(model_type, pretrained_model, config_args)
+        self.config = self._get_config(model_type, pretrained_config or pretrained_model, config_args)
         t2 = time.perf_counter()
 
         logger.info(f"Model configuration: {self.config}")
@@ -86,7 +90,9 @@ class Pipeline:
         log_rank_n("*** Creating model", logger.info)
         with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
             torch_dtype = torch.float16 if self.is_int8 else self.dtype
-            model = AutoModelForCausalLM.from_config(config=self.config, torch_dtype=torch_dtype)
+            model = AutoModelForCausalLM.from_config(
+                config=self.config, torch_dtype=torch_dtype, trust_remote_code=self.trust_remote_code
+            )
         t1 = time.perf_counter()
         log_rank_n("*** Moving to device", logger.info)
         model.to(self.device)
@@ -98,6 +104,7 @@ class Pipeline:
         self.initialization_metrics["model initialization"] = t1 - t0
         self.initialization_metrics["move to device"] = t2 - t1
         self.initialization_metrics["initialize weights"] = t3 - t2
+
         return model
 
     def _reload_model(self):
@@ -118,9 +125,12 @@ class Pipeline:
         log_rank_n(f"*** Loading model from {pretrained_model}", logger.info)
         kwargs = {"load_in_8bit": True, "device_map": "auto"} if self.is_int8 else {"torch_dtype": self.dtype}
         with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
+            pretrained_model, revision = parse_revision(pretrained_model)
             model = AutoModelForCausalLM.from_pretrained(
                 pretrained_model,
+                revision=revision,
                 config=self.config,
+                trust_remote_code=self.trust_remote_code,
                 **kwargs,
             )
         t1 = time.perf_counter()
@@ -135,7 +145,7 @@ class Pipeline:
     def _get_config(
         self,
         model_type: Optional[str],
-        pretrained_model: Optional[str],
+        pretrained_config: Optional[str],
         config_args: Dict[str, Any],
     ) -> PretrainedConfig:
         config_args = {
@@ -145,15 +155,16 @@ class Pipeline:
         }
 
         if model_type is None:
-            if pretrained_model is None:
+            if pretrained_config is None:
                 raise ValueError("You need to provide either --model_type or --pretrained_model")
             config_class = AutoConfig
         elif model_type not in CONFIG_MAPPING:
             raise ValueError(f"Unknown model type: {model_type}")
         else:
             config_class = CONFIG_MAPPING[model_type]
+            config_args["model_type"] = model_type
 
-        if pretrained_model is None:
+        if pretrained_config is None:
             config_args.update(
                 {
                     "bos_token_id": self.tokenizer.bos_token_id,
@@ -163,7 +174,10 @@ class Pipeline:
             )
             config, unused = config_class.from_dict({}, **config_args)
         else:
-            config, unused = config_class.from_pretrained(pretrained_model, **config_args)
+            pretrained_config, revision = parse_revision(pretrained_config)
+            config, unused = config_class.from_pretrained(
+                pretrained_config, revision=revision, trust_remote_code=self.trust_remote_code, **config_args
+            )
 
         if unused:
             raise ValueError(f"There were unused configuration parameters: {tuple(unused)}")
@@ -216,7 +230,8 @@ class Pipeline:
             "Latency (decode)": format_ms(mean_metrics[DECODE_TIME]),
             "Latency (max)": format_ms(max(all_metrics[END_TO_END_TIME])),
             "Latency (min)": format_ms(min(all_metrics[END_TO_END_TIME])),
-            "Tokens generated": f"{mean_metrics[NUM_GENERATED_TOKENS]:.0f}",
+            "Tokens generated (average)": f"{mean_metrics[NUM_GENERATED_TOKENS]:.0f}",
+            "Tokens generated (total)": f"{np.sum(all_metrics[NUM_GENERATED_TOKENS]).item():.0f}",
             "Throughput (model)": f"{model_throughput:.2f} tokens/s",
             "Throughput (end to end)": f"{throughput:.2f} tokens/s",
             "Token time (end to end)": f"{format_ms(throughput ** -1)}/token",

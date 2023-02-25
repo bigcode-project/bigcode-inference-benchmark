@@ -11,8 +11,10 @@ def get_arg_parser() -> ArgumentParser:
 
     # Model
     parser.add_argument("--model_type")
+    parser.add_argument("--pretrained_config")
     parser.add_argument("--pretrained_model")
     parser.add_argument("--tokenizer", default="gpt2")
+    parser.add_argument("--trust_remote_code", action="store_true")
     parser.add_argument("config_args", nargs="*")
 
     # Runtime
@@ -47,10 +49,14 @@ def get_arg_parser() -> ArgumentParser:
 def parse_config_args(config_args: List[str]) -> typing.Dict[str, Any]:
     parsed_config_args = {}
     for config_arg in config_args:
-        try:
-            key, value = [x.strip() for x in config_arg.split("=")]
-        except ValueError:
-            raise ValueError(f"Cannot parse argument: {config_arg}")
+        split_arg = [x.strip() for x in config_arg.split("=", 1)]
+        if len(split_arg) != 2:
+            raise ValueError(f"Cannot parse argument (not in 'key=value' format): {config_arg}")
+        key, value = split_arg
+        if not key.isidentifier():
+            raise ValueError(f"Invalid argument (not a python identifier): {key}")
+        if key in parsed_config_args:
+            raise ValueError(f"Duplicate argument: {key}")
         if value.lower() == "true":
             value = True
         elif value.lower() == "false":
@@ -65,7 +71,7 @@ def parse_config_args(config_args: List[str]) -> typing.Dict[str, Any]:
                     value = float(value)
                 except ValueError:
                     pass
-        parsed_config_args[key.strip()] = value
+        parsed_config_args[key] = value
     return parsed_config_args
 
 
