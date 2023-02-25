@@ -9,6 +9,7 @@ import torch
 
 from src.utils.fast_init import fast_init
 from src.utils.logging import format_ms, log_rank_n
+from src.utils.utils import parse_revision
 from transformers import (
     CONFIG_MAPPING,
     AutoConfig,
@@ -17,7 +18,7 @@ from transformers import (
     PretrainedConfig,
     PreTrainedModel,
 )
-from src.utils.utils import parse_revision
+
 
 logger = logging.getLogger(__name__)
 

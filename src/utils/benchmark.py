@@ -7,7 +7,7 @@ from typing import List, Union
 import torch
 
 from src.pipelines.pipeline import Pipeline
-from src.utils.logging import format_ms, log_dict, log_rank_n, format_mib
+from src.utils.logging import format_mib, format_ms, log_dict, log_rank_n
 
 
 logger = logging.getLogger(__name__)
@@ -139,8 +139,7 @@ def benchmark_end_to_end(
     benchmark_stats["Total time"] = format_ms(t2 - t0)
 
     if len(all_metrics) > 0:
-        log_rank_n("*** Performance metrics:", logger.info)
-        log_dict(pipeline.aggregate_and_format_metrics(all_metrics), logger.info)
+        benchmark_stats.update(pipeline.aggregate_and_format_metrics(all_metrics))
 
-    log_rank_n("*** Benchmarking stats:", logger.info)
+    log_rank_n("*** Benchmark results:", logger.info)
     log_dict(benchmark_stats, logger.info)
