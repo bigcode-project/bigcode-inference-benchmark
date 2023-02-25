@@ -103,6 +103,7 @@ class Pipeline:
         self.initialization_metrics["model initialization"] = t1 - t0
         self.initialization_metrics["move to device"] = t2 - t1
         self.initialization_metrics["initialize weights"] = t3 - t2
+
         return model
 
     def _reload_model(self):
