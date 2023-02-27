@@ -17,31 +17,36 @@ def parse_revision(pretrained_model: Optional[str]) -> Tuple[Optional[str], Opti
     return pretrained_model, revision
 
 
+def parse_config_arg(config_arg: str) -> Tuple[str, Any]:
+    split_arg = [x.strip() for x in config_arg.split("=", 1)]
+    if len(split_arg) != 2:
+        raise ValueError(f"Cannot parse argument (not in 'key=value' format): {config_arg}")
+    key, value = split_arg
+    if not key.isidentifier():
+        raise ValueError(f"Invalid argument (not a python identifier): {key}")
+    if value.lower() == "true":
+        value = True
+    elif value.lower() == "false":
+        value = False
+    elif value.lower() == "none":
+        value = None
+    else:
+        try:
+            value = int(value)
+        except ValueError:
+            try:
+                value = float(value)
+            except ValueError:
+                pass
+    return key, value
+
+
 def parse_config_args(config_args: List[str]) -> typing.Dict[str, Any]:
     parsed_config_args = {}
     for config_arg in config_args:
-        split_arg = [x.strip() for x in config_arg.split("=", 1)]
-        if len(split_arg) != 2:
-            raise ValueError(f"Cannot parse argument (not in 'key=value' format): {config_arg}")
-        key, value = split_arg
-        if not key.isidentifier():
-            raise ValueError(f"Invalid argument (not a python identifier): {key}")
+        key, value = parse_config_arg(config_arg)
         if key in parsed_config_args:
             raise ValueError(f"Duplicate argument: {key}")
-        if value.lower() == "true":
-            value = True
-        elif value.lower() == "false":
-            value = False
-        elif value.lower() == "none":
-            value = None
-        else:
-            try:
-                value = int(value)
-            except ValueError:
-                try:
-                    value = float(value)
-                except ValueError:
-                    pass
         parsed_config_args[key] = value
     return parsed_config_args
 
@@ -98,7 +103,7 @@ def get_dummy_batch(batch_size: int, max_input_length: int = -1) -> List[str]:
     if max_input_length == -1:
         input_sentences = copy.deepcopy(dummy_input_sentences)
     else:
-        input_sentences = batch_size * ["Hello " * max_input_length]
+        input_sentences = batch_size * [" Hello" * max_input_length]
 
     if batch_size > len(input_sentences):
         input_sentences *= math.ceil(batch_size / len(input_sentences))

@@ -188,7 +188,6 @@ class Pipeline:
         output_length = output_tokens.size(1)
 
         output_text = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
-        print("AAA", output_text)
         t3 = time.perf_counter()
 
         metrics = {
