@@ -3,6 +3,7 @@ import gc
 import json
 import time
 from argparse import ArgumentParser
+from pathlib import Path
 from typing import List, Optional
 
 import torch
@@ -49,7 +50,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--profile", action="store_true")
     parser.add_argument("--full_trace", action="store_true")
     parser.add_argument("--show_op_names", action="store_true")
-    parser.add_argument("--save")
+    parser.add_argument("--save", type=Path)
 
     return parser
 
@@ -93,10 +94,9 @@ def main(argv: Optional[List[str]] = None) -> None:
     benchmark_metrics = {
         **generate_kwargs,
         "Model parameters": pipeline.get_num_parameters(),
-        "Batch size": len(inputs),
-        "Warmup cycles": args.skip + warmup,
-        "Benchmark cycles": args.cycles,
-        "Total cycles": args.skip + warmup + args.cycles,
+        "Cycles (warmup)": args.skip + warmup,
+        "Cycles (benchmark)": args.cycles,
+        "Cycles (total)": args.skip + warmup + args.cycles,
     }
 
     if pipeline.device.type == "cuda":
@@ -136,7 +136,7 @@ def main(argv: Optional[List[str]] = None) -> None:
     benchmark_metrics[Metrics.RUNTIME_TOTAL] = t3 - t0
 
     if len(all_metrics) > 0:
-        benchmark_metrics.update(pipeline.aggregate_and_format_metrics(all_metrics))
+        benchmark_metrics.update(pipeline.aggregate_metrics(all_metrics))
 
     benchmark_metrics = Metrics.reorder_metrics(benchmark_metrics)
 
@@ -144,7 +144,10 @@ def main(argv: Optional[List[str]] = None) -> None:
     log_dict(Metrics.format_metrics(benchmark_metrics), logger.info)
 
     if args.save:
-        with open(args.save, "w") as f:
+        save_path = Path(args.save).resolve()
+        print(f"*** Saving results to {save_path}")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with save_path.open("w") as f:
             json.dump(
                 {
                     "config": pipeline.config.to_dict(),

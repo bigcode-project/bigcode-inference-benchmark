@@ -173,26 +173,30 @@ class Pipeline:
 
     def __call__(self, text: List[str], **generate_kwargs) -> Tuple[List[str], Dict[str, Any]]:
         t0 = time.perf_counter()
-        input_tokens = self.tokenizer(text, return_tensors="pt", padding=True)
+        inputs = self.tokenizer(text, return_tensors="pt", padding=True)
 
-        for t in input_tokens:
-            if torch.is_tensor(input_tokens[t]):
-                input_tokens[t] = input_tokens[t].to(self.device)
+        inputs = {key: value.to(self.device) if torch.is_tensor(value) else value for key, value in inputs.items()}
 
         t1 = time.perf_counter()
         with torch.inference_mode():
-            output = self.model.generate(**input_tokens, return_dict_in_generate=True, **generate_kwargs)
+            output = self.model.generate(**inputs, return_dict_in_generate=True, **generate_kwargs)
         t2 = time.perf_counter()
 
         output_tokens = output.sequences
 
-        num_generated_tokens = sum(o.shape[0] - i.shape[0] for i, o in zip(input_tokens.input_ids, output_tokens))
+        batch_size, input_length = inputs["input_ids"].shape
+        output_length = output_tokens.size(1)
 
         output_text = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
+        print("AAA", output_text)
         t3 = time.perf_counter()
 
         metrics = {
-            Metrics.TOKENS_AVERAGE: num_generated_tokens,
+            Metrics.BATCH_SIZE: batch_size,
+            Metrics.INPUT_LENGTH: input_length,
+            Metrics.OUTPUT_LENGTH: output_length,
+            Metrics.TOKENS_SAMPLE: output_length - input_length,
+            Metrics.TOKENS_BATCH: batch_size * (output_length - input_length),
             Metrics.LATENCY_TOKEN: t1 - t0,
             Metrics.LATENCY_MODEL: t2 - t1,
             Metrics.LATENCY_DECODE: t3 - t2,
@@ -208,7 +212,11 @@ class Pipeline:
         all_metrics = {
             key: [metrics_[key] for metrics_ in metrics if key in metrics_]
             for key in (
-                Metrics.TOKENS_AVERAGE,
+                Metrics.BATCH_SIZE,
+                Metrics.INPUT_LENGTH,
+                Metrics.OUTPUT_LENGTH,
+                Metrics.TOKENS_SAMPLE,
+                Metrics.TOKENS_BATCH,
                 Metrics.LATENCY_TOKEN,
                 Metrics.LATENCY_MODEL,
                 Metrics.LATENCY_DECODE,
@@ -216,8 +224,8 @@ class Pipeline:
             )
         }
         mean_metrics = {key: np.mean(value).item() for key, value in all_metrics.items() if len(value) > 0}
-        throughput = mean_metrics[Metrics.TOKENS_AVERAGE] / mean_metrics[Metrics.LATENCY_E2E]
-        model_throughput = mean_metrics[Metrics.TOKENS_AVERAGE] / mean_metrics[Metrics.LATENCY_MODEL]
+        throughput = mean_metrics[Metrics.TOKENS_BATCH] / mean_metrics[Metrics.LATENCY_E2E]
+        model_throughput = mean_metrics[Metrics.TOKENS_BATCH] / mean_metrics[Metrics.LATENCY_MODEL]
 
         return {
             **self.global_metrics,
@@ -225,7 +233,6 @@ class Pipeline:
             Metrics.LATENCY_MAX: max(all_metrics[Metrics.LATENCY_E2E]),
             Metrics.LATENCY_MIN: min(all_metrics[Metrics.LATENCY_E2E]),
             Metrics.LATENCY_STD: np.std(all_metrics[Metrics.LATENCY_E2E]).item(),
-            Metrics.TOKENS_TOTAL: np.sum(all_metrics[Metrics.TOKENS_AVERAGE]).item(),
             Metrics.THROUGHPUT_MODEL: model_throughput,
             Metrics.THROUGHPUT_E2E: throughput,
             Metrics.TOKEN_TIME: throughput**-1,

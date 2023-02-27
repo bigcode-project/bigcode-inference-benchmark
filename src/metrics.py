@@ -6,11 +6,11 @@ def format_round(x: float) -> str:
 
 
 def format_throughput(x: float) -> str:
-    f"{x:.2f} tokens/s"
+    return f"{x:.2f} tokens/s"
 
 
 def format_inverse_throughput(x: float) -> str:
-    f"{format_ms(x ** -1)}/token"
+    return f"{format_ms(x ** -1)}/token"
 
 
 def format_ms(t: float) -> str:
@@ -29,8 +29,11 @@ class Metrics:
     LATENCY_MAX = "Latency (max)"
     LATENCY_MIN = "Latency (min)"
     LATENCY_STD = "Latency (std)"
-    TOKENS_AVERAGE = "Tokens generated (average)"
-    TOKENS_TOTAL = "Tokens generated (total)"
+    BATCH_SIZE = "Batch size"
+    INPUT_LENGTH = "Input sequence length"
+    OUTPUT_LENGTH = "Output sequence length"
+    TOKENS_SAMPLE = "Tokens generated (sample)"
+    TOKENS_BATCH = "Tokens generated (batch)"
     THROUGHPUT_MODEL = "Throughput (model)"
     THROUGHPUT_E2E = "Throughput (end to end)"
     TOKEN_TIME = "Token time (end to end)"
@@ -60,8 +63,11 @@ class Metrics:
         LATENCY_MAX: format_ms,
         LATENCY_MIN: format_ms,
         LATENCY_STD: format_ms,
-        TOKENS_AVERAGE: format_round,
-        TOKENS_TOTAL: format_round,
+        BATCH_SIZE: format_round,
+        INPUT_LENGTH: format_round,
+        OUTPUT_LENGTH: format_round,
+        TOKENS_SAMPLE: format_round,
+        TOKENS_BATCH: format_round,
         THROUGHPUT_MODEL: format_throughput,
         THROUGHPUT_E2E: format_throughput,
         TOKEN_TIME: format_inverse_throughput,
@@ -73,6 +79,9 @@ class Metrics:
         INIT_WEIGHTS: format_ms,
         INIT_SAVE: format_ms,
         INIT_LOAD: format_ms,
+        RUNTIME_WARMUP: format_ms,
+        RUNTIME_BENCHMARK: format_ms,
+        RUNTIME_TOTAL: format_ms,
         MEMORY_USED_INIT: format_mib,
         MEMORY_USED_END: format_mib,
         MEMORY_USED_MAX: format_mib,
