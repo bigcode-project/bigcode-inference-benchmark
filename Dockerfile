@@ -23,3 +23,4 @@ RUN pip install --upgrade pip --no-cache-dir && pip install -r requirements.txt 
 
 COPY --chown=$USERNAME Makefile .
 COPY --chown=$USERNAME src/ ./src
+COPY --chown=$USERNAME scripts/ ./scripts

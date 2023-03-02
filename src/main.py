@@ -1,22 +1,17 @@
 import contextlib
 import gc
+import json
 import time
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser
+from pathlib import Path
 from typing import List, Optional
 
 import torch
 
-from src.pipeline import get_pipeline_class
+from src.metrics import Metrics
+from src.pipeline import Pipeline, get_pipeline_class
 from src.profile import get_profiler, logger
-from src.utils import (
-    configure_logging,
-    format_mib,
-    format_ms,
-    get_dummy_batch,
-    log_dict,
-    log_rank_n,
-    parse_config_args,
-)
+from src.utils import configure_logging, get_dummy_batch, log_dict, log_rank_n, parse_config_args
 
 
 def get_arg_parser() -> ArgumentParser:
@@ -51,25 +46,39 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--cycles", type=int, default=5)
 
     # Profiling and logging
-    parser.add_argument("--max_log_outputs", default=None, type=int)
+    parser.add_argument("--max_log_outputs", type=int)
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--profile_cycles", type=int)
     parser.add_argument("--full_trace", action="store_true")
     parser.add_argument("--show_op_names", action="store_true")
+    parser.add_argument("--save", type=Path)
 
     return parser
 
 
 def main(argv: Optional[List[str]] = None) -> None:
+    t0 = time.perf_counter()
     parser = get_arg_parser()
     args = parser.parse_args(argv)
     config_args = parse_config_args(args.config_args)
     generate_kwargs = {"max_new_tokens": args.max_new_tokens, "do_sample": False}
     inputs = get_dummy_batch(args.batch_size, args.max_input_length)
+    separate_profile = args.profile and args.profile_cycles is not None
     warmup = args.profile if args.warmup is None else args.warmup
+    if separate_profile:
+        pre_warmup_cycles = args.cycles
+        post_warmup_cycles = args.profile_cycles
+        benchmark_begin = args.skip
+    else:
+        pre_warmup_cycles = 0
+        post_warmup_cycles = args.cycles
+        benchmark_begin = args.skip + warmup
+    benchmark_end = benchmark_begin + args.cycles
+
     max_log_outputs = args.batch_size if args.max_log_outputs is None else args.max_log_outputs
 
     pipeline_class = get_pipeline_class(args.pipeline_class)
-    pipeline = pipeline_class(
+    pipeline: Pipeline = pipeline_class(
         model_type=args.model_type,
         pretrained_model=args.pretrained_model,
         pretrained_config=args.pretrained_config,
@@ -85,36 +94,36 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     if args.profile:
         profiler = get_profiler(
-            skip=args.skip,
+            skip=args.skip + pre_warmup_cycles,
             warmup=warmup,
-            cycles=args.cycles,
+            cycles=post_warmup_cycles,
             full_trace=args.full_trace,
             show_op_names=args.show_op_names,
         )
     else:
         profiler = contextlib.nullcontext()
 
-    benchmark_stats = {
-        "Model parameters": pipeline.get_num_parameters(),
-        "Batch size": len(inputs),
+    benchmark_metrics = {
         **generate_kwargs,
-        **pipeline.get_initialization_metrics(),
-        "Warmup cycles": args.skip + warmup,
-        "Benchmark cycles": args.cycles,
-        "Total cycles": args.skip + warmup + args.cycles,
+        "Model parameters": pipeline.get_num_parameters(),
+        "Cycles (warmup)": args.skip + warmup,
+        "Cycles (benchmark)": args.cycles,
     }
+    if args.profile:
+        benchmark_metrics["Cycles (profile)"] = post_warmup_cycles
+    benchmark_metrics["Cycles (total)"] = args.skip + warmup + pre_warmup_cycles + post_warmup_cycles
 
     if pipeline.device.type == "cuda":
-        benchmark_stats["Initial memory used"] = format_mib(torch.cuda.memory_allocated())
-        benchmark_stats["Initial memory reserved"] = format_mib(torch.cuda.memory_reserved())
+        benchmark_metrics[Metrics.MEMORY_USED_INIT] = torch.cuda.memory_allocated()
+        benchmark_metrics[Metrics.MEMORY_RESERVED_INIT] = torch.cuda.memory_reserved()
         torch.cuda.reset_peak_memory_stats()
 
-    t0 = time.perf_counter()
+    t1 = time.perf_counter()
     with profiler as p:
         for step in range(args.skip + warmup + args.cycles):
             if step == args.skip + warmup:
-                t1 = time.perf_counter()
-                benchmark_stats["Warmup time"] = format_ms(t1 - t0)
+                t2 = time.perf_counter()
+                benchmark_metrics[Metrics.RUNTIME_WARMUP] = t2 - t1
             generated_text, metrics = pipeline(inputs, **generate_kwargs)
             if args.profile:
                 p.step()
@@ -123,7 +132,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 for i, o, _ in zip(inputs, generated_text, range(max_log_outputs)):
                     log_rank_n(f"{'-' * 60}\nINPUT = {i}\nOUTPUT = {o}", logger.info)
 
-            if step >= args.skip + warmup:
+            if benchmark_begin <= step < benchmark_end:
                 all_metrics.append(metrics)
 
             if args.clear_every_run:
@@ -131,20 +140,35 @@ def main(argv: Optional[List[str]] = None) -> None:
                 gc.collect()
                 torch.cuda.empty_cache()
     if pipeline.device.type == "cuda":
-        benchmark_stats["Memory used"] = format_mib(torch.cuda.memory_allocated())
-        benchmark_stats["Memory reserved"] = format_mib(torch.cuda.memory_reserved())
-        benchmark_stats["Max memory used"] = format_mib(torch.cuda.max_memory_allocated())
-        benchmark_stats["Max memory reserved"] = format_mib(torch.cuda.max_memory_reserved())
+        benchmark_metrics[Metrics.MEMORY_USED_END] = torch.cuda.memory_allocated()
+        benchmark_metrics[Metrics.MEMORY_RESERVED_END] = torch.cuda.memory_reserved()
+        benchmark_metrics[Metrics.MEMORY_USED_MAX] = torch.cuda.max_memory_allocated()
+        benchmark_metrics[Metrics.MEMORY_RESERVED_MAX] = torch.cuda.max_memory_reserved()
 
-    t2 = time.perf_counter()
-    benchmark_stats["Benchmark time"] = format_ms(t2 - t1)
-    benchmark_stats["Total time"] = format_ms(t2 - t0)
+    t3 = time.perf_counter()
+    benchmark_metrics[Metrics.RUNTIME_BENCHMARK] = t3 - t2
+    benchmark_metrics[Metrics.RUNTIME_TOTAL] = t3 - t0
 
     if len(all_metrics) > 0:
-        benchmark_stats.update(pipeline.aggregate_and_format_metrics(all_metrics))
+        benchmark_metrics.update(pipeline.aggregate_metrics(all_metrics))
+
+    benchmark_metrics = Metrics.reorder_metrics(benchmark_metrics)
 
     log_rank_n("*** Benchmark results:", logger.info)
-    log_dict(benchmark_stats, logger.info)
+    log_dict(Metrics.format_metrics(benchmark_metrics), logger.info)
+
+    if args.save:
+        save_path = Path(args.save).resolve()
+        print(f"*** Saving results to {save_path}")
+        save_path.parent.mkdir(parents=True, exist_ok=True)
+        with save_path.open("w") as f:
+            json.dump(
+                {
+                    "config": pipeline.config.to_dict(),
+                    "results": benchmark_metrics,
+                },
+                f,
+            )
 
 
 if __name__ == "__main__":

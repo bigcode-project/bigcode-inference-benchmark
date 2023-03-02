@@ -56,7 +56,7 @@ gpt-bigcode-mqa2:
 	${RUN_HF} ${BIGCODE_ARGS} attention_type=3
 
 .PHONY: santacoder-original
-santacoder:
+santacoder-original:
 	${RUN_HF} --pretrained_model=bigcode/santacoder --tokenizer=bigcode/santacoder --trust_remote_code ${EXP_ARGS}
 
 .PHONY: santacoder
