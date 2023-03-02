@@ -1,5 +1,6 @@
 *
 !src
+!scripts
 !transformers
 !requirements.txt
 !Makefile

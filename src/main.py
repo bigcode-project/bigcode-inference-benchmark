@@ -46,8 +46,9 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--cycles", type=int, default=5)
 
     # Profiling and logging
-    parser.add_argument("--max_log_outputs", default=None, type=int)
+    parser.add_argument("--max_log_outputs", type=int)
     parser.add_argument("--profile", action="store_true")
+    parser.add_argument("--profile_cycles", type=int)
     parser.add_argument("--full_trace", action="store_true")
     parser.add_argument("--show_op_names", action="store_true")
     parser.add_argument("--save", type=Path)
@@ -62,7 +63,18 @@ def main(argv: Optional[List[str]] = None) -> None:
     config_args = parse_config_args(args.config_args)
     generate_kwargs = {"max_new_tokens": args.max_new_tokens, "do_sample": False}
     inputs = get_dummy_batch(args.batch_size, args.max_input_length)
+    separate_profile = args.profile and args.profile_cycles is not None
     warmup = args.profile if args.warmup is None else args.warmup
+    if separate_profile:
+        pre_warmup_cycles = args.cycles
+        post_warmup_cycles = args.profile_cycles
+        benchmark_begin = args.skip
+    else:
+        pre_warmup_cycles = 0
+        post_warmup_cycles = args.cycles
+        benchmark_begin = args.skip + warmup
+    benchmark_end = benchmark_begin + args.cycles
+
     max_log_outputs = args.batch_size if args.max_log_outputs is None else args.max_log_outputs
 
     pipeline_class = get_pipeline_class(args.pipeline_class)
@@ -82,9 +94,9 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     if args.profile:
         profiler = get_profiler(
-            skip=args.skip,
+            skip=args.skip + pre_warmup_cycles,
             warmup=warmup,
-            cycles=args.cycles,
+            cycles=post_warmup_cycles,
             full_trace=args.full_trace,
             show_op_names=args.show_op_names,
         )
@@ -96,8 +108,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         "Model parameters": pipeline.get_num_parameters(),
         "Cycles (warmup)": args.skip + warmup,
         "Cycles (benchmark)": args.cycles,
-        "Cycles (total)": args.skip + warmup + args.cycles,
     }
+    if args.profile:
+        benchmark_metrics["Cycles (profile)"] = post_warmup_cycles
+    benchmark_metrics["Cycles (total)"] = args.skip + warmup + pre_warmup_cycles + post_warmup_cycles
 
     if pipeline.device.type == "cuda":
         benchmark_metrics[Metrics.MEMORY_USED_INIT] = torch.cuda.memory_allocated()
@@ -118,7 +132,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 for i, o, _ in zip(inputs, generated_text, range(max_log_outputs)):
                     log_rank_n(f"{'-' * 60}\nINPUT = {i}\nOUTPUT = {o}", logger.info)
 
-            if step >= args.skip + warmup:
+            if benchmark_begin <= step < benchmark_end:
                 all_metrics.append(metrics)
 
             if args.clear_every_run:

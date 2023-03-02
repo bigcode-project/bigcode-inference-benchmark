@@ -187,7 +187,7 @@ class Pipeline:
         batch_size, input_length = inputs["input_ids"].shape
         output_length = output_tokens.size(1)
 
-        output_text = self.tokenizer.batch_decode(output_tokens, skip_special_tokens=True)
+        output_text = self.tokenizer.batch_decode(output_tokens.cpu(), skip_special_tokens=True)
         t3 = time.perf_counter()
 
         metrics = {

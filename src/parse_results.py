@@ -12,11 +12,14 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("input_dir", type=Path)
     parser.add_argument("--filter", action="append")
     parser.add_argument("--column", "--col", action="append")
+    parser.add_argument("--compare_value")
+    parser.add_argument("--compare_col", default="Setting")
     parser.add_argument("--table", action="store_true")
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("-x", "--x_axis", default=Metrics.BATCH_SIZE)
     parser.add_argument("-y", "--y_axis", default=Metrics.THROUGHPUT_E2E)
     parser.add_argument("-z", "--z_axis")
+    parser.add_argument("--title")
     return parser
 
 
@@ -64,6 +67,40 @@ def parse_key(key: Optional[str]) -> Optional[str]:
     return getattr(Metrics, key.upper(), key)
 
 
+def make_compare_table(data, cols, compare_value, compare_col):
+    from markdownTable import markdownTable
+
+    compare_value = parse_key(compare_value)
+    compare_col = parse_key(compare_col)
+    compare_data = {}
+    all_compare_index = set()
+    # Aggregate by the cols entries, then map compare_key to compare
+    for x in data:
+        index = tuple(x[col] for col in cols)
+        if index not in compare_data:
+            compare_data[index] = {}
+        compare_index = x[compare_col]
+        all_compare_index.add(compare_index)
+        if compare_index in compare_data[index]:
+            print(f"Duplicate entry {compare_index} for index {index}")
+        compare_data[index][compare_index] = Metrics.format_metric(compare_value, x[compare_value])
+
+    table_data = []
+    for index in sorted(compare_data):
+        # Merge the index and values
+        table_data.append(
+            {
+                **Metrics.format_metrics({col: v for col, v in zip(cols, index)}),
+                **{
+                    compare_index: compare_data[index].get(compare_index, "N.A.")
+                    for compare_index in sorted(all_compare_index)
+                },
+            }
+        )
+
+    return markdownTable(table_data).getMarkdown()
+
+
 def filter_data(data, filters):
     if filters is None:
         return data
@@ -79,7 +116,7 @@ def filter_data(data, filters):
     return filtered_data
 
 
-def plot(data, x_axis, y_axis, z_axis):
+def plot(data, x_axis, y_axis, z_axis, title=None):
     import matplotlib.pyplot as plt
 
     x_axis = parse_key(x_axis)
@@ -87,17 +124,25 @@ def plot(data, x_axis, y_axis, z_axis):
     z_axis = parse_key(z_axis)
     x = [d[x_axis] for d in data]
     y = [d[y_axis] for d in data]
-    z = None if z_axis is None else [d[z_axis] for d in data]
 
     fig = plt.figure()
     ax = fig.add_subplot()
 
-    scatter = ax.scatter(x, y, c=z)
+    # z = None if z_axis is None else [d[z_axis] for d in data]
+    if z_axis is None:
+        ax.scatter(x, y)
+    else:
+        z = [d[z_axis] for d in data]
+        for z_value in set(z):
+            xx, yy = tuple(zip(*sorted((x_, y_) for x_, y_, z_ in zip(x, y, z) if z_ == z_value)))
+            ax.plot(xx, yy, label=z_value, linewidth=1, linestyle=":", markersize=4, marker="o")
+            # ax.scatter(x,y, label=z_value)
+        # handles, labels = scatter.legend_elements()
+        ax.legend(loc="upper left")  # handles=handles, labels=labels, title=z_axis)
+
+    ax.set_title(y_axis if title is None else title)
     ax.set_xlabel(x_axis)
     ax.set_ylabel(y_axis)
-    if z_axis is not None:
-        handles, labels = scatter.legend_elements()
-        ax.legend(handles=handles, labels=labels, title=z_axis)
     fig.show()
     input("Press enter to continue")
 
@@ -115,10 +160,13 @@ def main(argv: Optional[List[str]] = None) -> None:
     cols = DEFAULT_COLUMNS if args.column is None else [parse_key(col) for col in args.column]
 
     if args.table:
-        print(make_table(data, cols))
+        if args.compare_value:
+            print(make_compare_table(data, cols, args.compare_value, args.compare_col))
+        else:
+            print(make_table(data, cols))
 
     if args.plot:
-        plot(data, args.x_axis, args.y_axis, args.z_axis)
+        plot(data, args.x_axis, args.y_axis, args.z_axis, args.title)
 
 
 if __name__ == "__main__":

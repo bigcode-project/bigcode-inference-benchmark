@@ -4,6 +4,9 @@ safetensors
 deepspeed==0.7.7
 -e ./transformers
 
+# TODO: Analysis only
+py-markdown-table
+
 # TODO: Dev only
 isort>=5.5.4
 black~=22.0

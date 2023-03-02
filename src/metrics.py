@@ -10,7 +10,7 @@ def format_throughput(x: float) -> str:
 
 
 def format_inverse_throughput(x: float) -> str:
-    return f"{format_ms(x ** -1)}/token"
+    return f"{format_ms(x)}/token"
 
 
 def format_ms(t: float) -> str:
@@ -101,5 +101,9 @@ class Metrics:
         return reordered_metrics
 
     @classmethod
+    def format_metric(cls, key: str, value: Any) -> str:
+        return cls._METRIC_ORDER_AND_FORMAT.get(key, str)(value)
+
+    @classmethod
     def format_metrics(cls, metrics: Dict[str, Any]) -> Dict[str, str]:
-        return {key: cls._METRIC_ORDER_AND_FORMAT.get(key, str)(value) for key, value in metrics.items()}
+        return {key: cls.format_metric(key, value) for key, value in metrics.items()}
