@@ -6,7 +6,7 @@ style:
 	isort $(check_dirs)
 
 BATCH_SIZE ?= 1
-DTYPE ?= float16
+DTYPE ?= float32
 HIDDEN_SIZE ?= 2048
 N_HEAD ?= 16
 N_LAYER ?= 24
@@ -66,3 +66,11 @@ santacoder:
 .PHONY: optimized-santacoder
 optimized-santacoder:
 	${RUN_HF} --pretrained_model=olivierdehaene/optimized-santacoder --tokenizer=bigcode/santacoder --trust_remote_code ${EXP_ARGS}
+
+.PHONY: santacoder-cpu
+santacoder-cpu:
+	python -m src.main --pipeline_class=HF_Pipeline --pretrained_model=mayank31398/santacoder --tokenizer=mayank31398/santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cpu
+
+.PHONY: santacoder-onnx
+santacoder-onnx:
+	python -m src.main --pipeline_class=ONNX_Pipeline --pretrained_model=onnx-santacoder --tokenizer=onnx-santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cpu

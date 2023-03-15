@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 import numpy as np
 import torch
 
+from optimum.onnxruntime import ORTModelForCausalLM
 from src.fast_init import fast_init
 from src.metrics import Metrics
 from src.utils import log_rank_n, parse_revision
@@ -266,9 +267,61 @@ class DS_Pipeline(Pipeline):
         )
 
 
+class ONNX_Pipeline(Pipeline):
+    def __init__(
+        self,
+        *,
+        model_type: Optional[str] = None,
+        pretrained_config: Optional[str] = None,
+        pretrained_model: Optional[str] = None,
+        config_args: Dict[str, Any],
+        tokenizer: str,
+        device: torch.device,
+        dtype: torch.dtype,
+        fast_init: bool = False,
+        trust_remote_code: bool = False,
+    ):
+        self.global_metrics = {}
+        log_rank_n("*** Setting up tokenizer", logger.info)
+        t0 = time.perf_counter()
+        self.tokenizer = AutoTokenizer.from_pretrained(tokenizer)
+
+        self.tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        t1 = time.perf_counter()
+
+        self.device = device
+
+        if device == torch.device("cpu"):
+            provider = "CPUExecutionProvider"
+        elif device == torch.device("cuda"):
+            provider = "CUDAExecutionProvider"
+
+        self.dtype = dtype
+
+        if self.dtype != torch.float32:
+            raise NotImplementedError(f"currently dtype {self.dtype} is not supported")
+
+        self.config = AutoConfig.from_pretrained(pretrained_model, trust_remote_code=trust_remote_code)
+        t2 = time.perf_counter()
+
+        logger.info(f"Model configuration: {self.config}")
+
+        self.model = ORTModelForCausalLM.from_pretrained(
+            pretrained_model, provider=provider, trust_remote_code=trust_remote_code
+        )
+        t3 = time.perf_counter()
+        self.global_metrics[Metrics.INIT_TOKEN] = t1 - t0
+        self.global_metrics[Metrics.INIT_CONFIG] = t2 - t1
+        self.global_metrics[Metrics.INIT_TOTAL] = t3 - t0
+
+    def get_num_parameters(self) -> int:
+        return "Not implemented"
+
+
 _PIPELINE_CLASS_MAP = {
     "HF_Pipeline": HF_Pipeline,
     "DS_Pipeline": DS_Pipeline,
+    "ONNX_Pipeline": ONNX_Pipeline,
 }
 
 
