@@ -71,6 +71,10 @@ optimized-santacoder:
 santacoder-cpu:
 	python -m src.main --pipeline_class=HF_Pipeline --pretrained_model=mayank31398/santacoder --tokenizer=mayank31398/santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cpu
 
-.PHONY: santacoder-onnx
-santacoder-onnx:
+.PHONY: santacoder-onnx-cpu
+santacoder-onnx-cpu:
 	python -m src.main --pipeline_class=ONNX_Pipeline --pretrained_model=onnx-santacoder --tokenizer=onnx-santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cpu
+
+.PHONY: santacoder-onn-gpu
+santacoder-onnx-gpu:
+	python -m src.main --pipeline_class=ONNX_Pipeline --pretrained_model=onnx-santacoder --tokenizer=onnx-santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cuda
