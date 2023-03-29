@@ -4,3 +4,4 @@
 [submodule "optimum"]
 	path = optimum
 	url = https://github.com/mayank31398/optimum/
+	branch = mayank/onnx-compatible
