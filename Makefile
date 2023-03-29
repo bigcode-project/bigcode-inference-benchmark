@@ -5,13 +5,13 @@ style:
 	black --preview $(check_dirs)
 	isort $(check_dirs)
 
-BATCH_SIZE ?= 1
+BATCH_SIZE ?= 4
 DTYPE ?= float32
 HIDDEN_SIZE ?= 2048
 N_HEAD ?= 16
 N_LAYER ?= 24
 N_POSITION ?= 2048
-MAX_INPUT_LENGTH ?= -1
+MAX_INPUT_LENGTH ?= 512
 
 RUN_HF := python3 src/main.py --pipeline_class=HF_Pipeline
 RUN_DS := deepspeed --num_gpus 1 src/main.py --pipeline_class=DS_Pipeline
@@ -71,10 +71,14 @@ optimized-santacoder:
 santacoder-cpu:
 	python -m src.main --pipeline_class=HF_Pipeline --pretrained_model=mayank31398/santacoder --tokenizer=mayank31398/santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cpu
 
+.PHONY: santacoder-gpu
+santacoder-gpu:
+	python -m src.main --pipeline_class=HF_Pipeline --pretrained_model=mayank31398/santacoder --tokenizer=mayank31398/santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cuda
+
 .PHONY: santacoder-onnx-cpu
 santacoder-onnx-cpu:
 	python -m src.main --pipeline_class=ONNX_Pipeline --pretrained_model=onnx-santacoder --tokenizer=onnx-santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cpu
 
-.PHONY: santacoder-onn-gpu
+.PHONY: santacoder-onnx-gpu
 santacoder-onnx-gpu:
 	python -m src.main --pipeline_class=ONNX_Pipeline --pretrained_model=onnx-santacoder --tokenizer=onnx-santacoder --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} --trust_remote_code --device cuda
