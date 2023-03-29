@@ -13,8 +13,8 @@ N_LAYER ?= 24
 N_POSITION ?= 2048
 MAX_INPUT_LENGTH ?= 512
 
-RUN_HF := python3 src/main.py --pipeline_class=HF_Pipeline
-RUN_DS := deepspeed --num_gpus 1 src/main.py --pipeline_class=DS_Pipeline
+RUN_HF := python -m src.main --pipeline_class=HF_Pipeline
+RUN_DS := deepspeed --num_gpus 1 --module src.main --pipeline_class=DS_Pipeline
 EXP_ARGS := --dtype=${DTYPE} --batch_size=${BATCH_SIZE} --max_input_length=${MAX_INPUT_LENGTH} ${EXTRA_ARGS}
 COMMON_ARGS :=  ${EXP_ARGS} n_head=${N_HEAD} n_layer=${N_LAYER}
 BLOOM_ARGS := --model_type=bloom ${COMMON_ARGS} hidden_size=${HIDDEN_SIZE}
