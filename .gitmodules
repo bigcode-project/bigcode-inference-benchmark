@@ -1,3 +1,7 @@
 [submodule "transformers"]
 	path = transformers
 	url = https://github.com/bigcode-project/transformers.git
+[submodule "optimum"]
+	path = optimum
+	url = https://github.com/mayank31398/optimum/
+	branch = mayank/onnx-compatible
