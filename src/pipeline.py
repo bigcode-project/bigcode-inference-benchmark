@@ -295,6 +295,8 @@ class ONNX_Pipeline(Pipeline):
             provider = "CPUExecutionProvider"
         elif device == torch.device("cuda"):
             provider = "CUDAExecutionProvider"
+        else:
+            raise ValueError(f"Unsupported device type {device}")
 
         self.dtype = dtype
 

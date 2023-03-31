@@ -1,8 +1,11 @@
 accelerate==0.15.0
 bitsandbytes
 safetensors
+onnx
+onnxruntime
+onnxruntime-gpu
 deepspeed==0.7.7
--e ./transformers
+-e ./transformers ./optimum
 
 # TODO: Analysis only
 py-markdown-table
