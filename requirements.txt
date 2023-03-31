@@ -9,4 +9,4 @@ py-markdown-table
 
 # TODO: Dev only
 isort>=5.5.4
-black~=22.0
+black~=23.1
