@@ -17,6 +17,10 @@ def format_ms(t: float) -> str:
     return f"{1000 * t:.2f} ms"
 
 
+def format_ms_dict(t_dict: Dict[str,float]) -> Dict[str,str]:
+    return {key:format_ms(value) for key, value in t_dict.items()}
+
+
 def format_mib(m: float) -> str:
     return f"{m/2**20:.0f} MiB"
 
@@ -24,7 +28,9 @@ def format_mib(m: float) -> str:
 class Metrics:
     LATENCY_E2E = "Latency (end to end)"
     LATENCY_TOKEN = "Latency (tokenization)"
-    LATENCY_MODEL = "Latency (model)"
+    LATENCY_MODEL = "Latency (generate)"
+    LATENCY_GENERATE_START = "Latency (prepare for generation)"
+    LATENCY_GENERATE_BREAKDOWN = "Latency (generate breakdown)"
     LATENCY_DECODE = "Latency (decode)"
     LATENCY_MAX = "Latency (max)"
     LATENCY_MIN = "Latency (min)"
@@ -59,6 +65,8 @@ class Metrics:
         LATENCY_E2E: format_ms,
         LATENCY_TOKEN: format_ms,
         LATENCY_MODEL: format_ms,
+        LATENCY_GENERATE_START: format_ms,
+        LATENCY_GENERATE_BREAKDOWN: format_ms_dict,
         LATENCY_DECODE: format_ms,
         LATENCY_MAX: format_ms,
         LATENCY_MIN: format_ms,

@@ -26,16 +26,19 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("config_args", nargs="*")
 
     # Runtime
+    parser.add_argument("-c", "--custom_generate", action="store_true")
     parser.add_argument("--pipeline_class", default="HF_Pipeline")
     parser.add_argument("--device", default="cuda", type=torch.device)
     parser.add_argument("--dtype", default="float16", type=lambda x: getattr(torch, x))
     parser.add_argument("--local_rank", type=int)
-    parser.add_argument("--no_fast_init", dest="fast_init", action="store_false")
+    parser.add_argument("--no_fast_init","--nf", dest="fast_init", action="store_false")
+    parser.add_argument("--no_cache","--nc", dest="use_cache", action="store_false")
+    parser.add_argument("--no_prefill","--np", dest="do_prefill", action="store_false")
 
     # Input and output
-    parser.add_argument("--batch_size", default=1, type=int)
-    parser.add_argument("--max_input_length", default=-1, type=int)
-    parser.add_argument("--max_new_tokens", default=100, type=int)
+    parser.add_argument("--batch_size","-b", default=1, type=int)
+    parser.add_argument("--max_input_length","-i", default=-1, type=int)
+    parser.add_argument("--max_new_tokens","-g", default=100, type=int)
 
     # Cleanup
     parser.add_argument("--clear_every_run", action="store_true")
@@ -47,10 +50,11 @@ def get_arg_parser() -> ArgumentParser:
 
     # Profiling and logging
     parser.add_argument("--max_log_outputs", type=int)
-    parser.add_argument("--profile", action="store_true")
-    parser.add_argument("--profile_cycles", type=int)
-    parser.add_argument("--full_trace", action="store_true")
-    parser.add_argument("--show_op_names", action="store_true")
+    parser.add_argument("--breakdown_latency","--bl", action="store_true")
+    parser.add_argument("--profile","-p", action="store_true")
+    parser.add_argument("--profile_cycles","--pc", type=int)
+    parser.add_argument("--full_trace","--pt", action="store_true")
+    parser.add_argument("--show_op_names","--pn", action="store_true")
     parser.add_argument("--save", type=Path)
 
     return parser
@@ -61,7 +65,6 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser = get_arg_parser()
     args = parser.parse_args(argv)
     config_args = parse_config_args(args.config_args)
-    generate_kwargs = {"max_new_tokens": args.max_new_tokens, "do_sample": False}
     inputs = get_dummy_batch(args.batch_size, args.max_input_length)
     separate_profile = args.profile and args.profile_cycles is not None
     warmup = args.profile if args.warmup is None else args.warmup
@@ -88,6 +91,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         dtype=args.dtype,
         fast_init=args.fast_init,
         trust_remote_code=args.trust_remote_code,
+        custom_generate=args.custom_generate,
+        use_cache=args.use_cache,
+        do_prefill=args.do_prefill,
+        breakdown_latency=args.breakdown_latency,
     )
 
     all_metrics = []
@@ -104,7 +111,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         profiler = contextlib.nullcontext()
 
     benchmark_metrics = {
-        **generate_kwargs,
+        "max_new_tokens": args.max_new_tokens,
         "Model parameters": pipeline.get_num_parameters(),
         "Cycles (warmup)": args.skip + warmup,
         "Cycles (benchmark)": args.cycles,
@@ -124,7 +131,7 @@ def main(argv: Optional[List[str]] = None) -> None:
             if step == args.skip + warmup:
                 t2 = time.perf_counter()
                 benchmark_metrics[Metrics.RUNTIME_WARMUP] = t2 - t1
-            generated_text, metrics = pipeline(inputs, **generate_kwargs)
+            generated_text, metrics = pipeline(inputs, args.max_new_tokens)
             if args.profile:
                 p.step()
 

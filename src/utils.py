@@ -82,9 +82,13 @@ def log_rank_n(msg: str, logger: Callable = logging.info, rank: int = 0):
             logger(line)
 
 
-def log_dict(data: dict, logger: Callable = logging.info, rank: int = 0):
+def log_dict(data: dict, logger: Callable = logging.info, rank: int = 0, _prefix=""):
     for key, value in data.items():
-        log_rank_n(f"{key}: {value}", logger, rank)
+        if isinstance(value, dict):
+            log_rank_n(f"{_prefix}{key}:", logger, rank)
+            log_dict(value, logger, rank, _prefix+"  ")
+        else:
+            log_rank_n(f"{_prefix}{key}: {value}", logger, rank)
 
 
 dummy_input_sentences = [
