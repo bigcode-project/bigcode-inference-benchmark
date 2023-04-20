@@ -86,7 +86,7 @@ def log_dict(data: dict, logger: Callable = logging.info, rank: int = 0, _prefix
     for key, value in data.items():
         if isinstance(value, dict):
             log_rank_n(f"{_prefix}{key}:", logger, rank)
-            log_dict(value, logger, rank, _prefix+"  ")
+            log_dict(value, logger, rank, _prefix + "  ")
         else:
             log_rank_n(f"{_prefix}{key}: {value}", logger, rank)
 

@@ -31,14 +31,16 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--device", default="cuda", type=torch.device)
     parser.add_argument("--dtype", default="float16", type=lambda x: getattr(torch, x))
     parser.add_argument("--local_rank", type=int)
-    parser.add_argument("--no_fast_init","--nf", dest="fast_init", action="store_false")
-    parser.add_argument("--no_cache","--nc", dest="use_cache", action="store_false")
-    parser.add_argument("--no_prefill","--np", dest="do_prefill", action="store_false")
+    parser.add_argument("--no_fast_init", "--nf", dest="fast_init", action="store_false")
+    parser.add_argument("--no_cache", "--nc", dest="use_cache", action="store_false")
+    parser.add_argument("--no_prefill", "--np", dest="do_prefill", action="store_false")
+    parser.add_argument("--key_length_step", "--ks", default=1, type=int)
+    parser.add_argument("--ignore_oom", "--oom", action="store_true")
 
     # Input and output
-    parser.add_argument("--batch_size","-b", default=1, type=int)
-    parser.add_argument("--max_input_length","-i", default=-1, type=int)
-    parser.add_argument("--max_new_tokens","-g", default=100, type=int)
+    parser.add_argument("--batch_size", "-b", default=1, type=int)
+    parser.add_argument("--max_input_length", "-i", default=-1, type=int)
+    parser.add_argument("--max_new_tokens", "-g", default=100, type=int)
 
     # Cleanup
     parser.add_argument("--clear_every_run", action="store_true")
@@ -50,11 +52,11 @@ def get_arg_parser() -> ArgumentParser:
 
     # Profiling and logging
     parser.add_argument("--max_log_outputs", type=int)
-    parser.add_argument("--breakdown_latency","--bl", action="store_true")
-    parser.add_argument("--profile","-p", action="store_true")
-    parser.add_argument("--profile_cycles","--pc", type=int)
-    parser.add_argument("--full_trace","--pt", action="store_true")
-    parser.add_argument("--show_op_names","--pn", action="store_true")
+    parser.add_argument("--breakdown_latency", "--bl", action="store_true")
+    parser.add_argument("--profile", "-p", action="store_true")
+    parser.add_argument("--profile_cycles", "--pc", type=int)
+    parser.add_argument("--full_trace", "--pt", action="store_true")
+    parser.add_argument("--show_op_names", "--pn", action="store_true")
     parser.add_argument("--save", type=Path)
 
     return parser
@@ -91,10 +93,6 @@ def main(argv: Optional[List[str]] = None) -> None:
         dtype=args.dtype,
         fast_init=args.fast_init,
         trust_remote_code=args.trust_remote_code,
-        custom_generate=args.custom_generate,
-        use_cache=args.use_cache,
-        do_prefill=args.do_prefill,
-        breakdown_latency=args.breakdown_latency,
     )
 
     all_metrics = []
@@ -128,10 +126,26 @@ def main(argv: Optional[List[str]] = None) -> None:
     t1 = time.perf_counter()
     with profiler as p:
         for step in range(args.skip + warmup + args.cycles):
+            log_rank_n(
+                (
+                    f"*** Running generation step {step} "
+                    f"({'skip' if step<args.skip else 'warmup' if step<args.skip + warmup else 'benchmark'})"
+                ),
+                logger.info,
+            )
             if step == args.skip + warmup:
                 t2 = time.perf_counter()
                 benchmark_metrics[Metrics.RUNTIME_WARMUP] = t2 - t1
-            generated_text, metrics = pipeline(inputs, args.max_new_tokens)
+            generated_text, metrics = pipeline(
+                inputs,
+                args.max_new_tokens,
+                custom_generate=args.custom_generate,
+                use_cache=args.use_cache,
+                do_prefill=args.do_prefill,
+                breakdown_latency=args.breakdown_latency,
+                key_length_step=args.key_length_step,
+                ignore_oom=args.ignore_oom,
+            )
             if args.profile:
                 p.step()
 

@@ -17,8 +17,8 @@ def format_ms(t: float) -> str:
     return f"{1000 * t:.2f} ms"
 
 
-def format_ms_dict(t_dict: Dict[str,float]) -> Dict[str,str]:
-    return {key:format_ms(value) for key, value in t_dict.items()}
+def format_ms_dict(t_dict: Dict[str, float]) -> Dict[str, str]:
+    return {key: format_ms(value) for key, value in t_dict.items()}
 
 
 def format_mib(m: float) -> str:

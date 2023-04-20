@@ -18,7 +18,7 @@ from transformers import (
     AutoTokenizer,
     PretrainedConfig,
     PreTrainedModel,
-    GPTBigCodeConfig,GPTBigCodeForCausalLM
+    GPTBigCodeConfig,
 )
 
 
@@ -38,38 +38,26 @@ class Pipeline:
         dtype: torch.dtype,
         fast_init: bool = True,
         trust_remote_code: bool = False,
-        custom_generate:bool=False,
-        use_cache: bool = True,
-        do_prefill: bool = True,
-        breakdown_latency=False,
     ):
         self.global_metrics = {}
         log_rank_n("*** Setting up tokenizer", logger.info)
         t0 = self._get_time()
         self.tokenizer = AutoTokenizer.from_pretrained(tokenizer, padding_side="left")
         if self.tokenizer.pad_token is None:
-            self.tokenizer.pad_token=self.tokenizer.eos_token
+            self.tokenizer.pad_token = self.tokenizer.eos_token
 
         t1 = self._get_time()
 
         self.device = device
-        if self.device==torch.device("cuda"):
-            self.device=torch.device("cuda:0")
+        if self.device == torch.device("cuda"):
+            self.device = torch.device("cuda:0")
 
         self.dtype = dtype
         self.is_int8 = self.dtype == torch.int8
         self.fast_init = fast_init
         self.trust_remote_code = trust_remote_code
-        self.use_cache = use_cache
-        self.do_prefill = do_prefill
-        if not self.do_prefill:
-            assert custom_generate
-            assert self.use_cache
-        self.breakdown_latency=breakdown_latency
         if self.is_int8 and self.device != torch.device("cuda:0"):
             raise ValueError(f"Model quantization not supported on device {self.device}")
-
-        self._generate=self._generate_custom if custom_generate else self._generate_hf
 
         self.config = self._get_config(model_type, pretrained_config or pretrained_model, config_args)
         t2 = self._get_time()
@@ -193,12 +181,49 @@ class Pipeline:
             torch.cuda.synchronize()
         return time.perf_counter()
 
-    def _generate_custom(self, inputs:Dict, max_new_tokens:int):
-        t0 = self._get_time(self.breakdown_latency)
+    def _allocate_mock_cache(self, past_key_length: int, batch_size: int):
+        if isinstance(self.config, GPTBigCodeConfig):
+            if self.config.pre_allocate_kv_cache:
+                past_key_values = [past_key_length] * self.config.n_layer
+                for block in self.model.transformer.h:
+                    block.attn.get_kv_cache(
+                        batch_size, past_key_length, dtype=self.dtype, device=self.device
+                    ).normal_()
+            else:
+                kv_dim = self.config.n_embd // self.config.n_head if self.config.multi_query else self.config.n_embd
+                past_key_values = [
+                    torch.randn([batch_size, past_key_length, 2 * kv_dim], dtype=self.dtype, device=self.device)
+                    for _ in range(self.config.n_layer)
+                ]
+        else:
+            past_key_values = [
+                [
+                    torch.randn(
+                        [batch_size, past_key_length, self.config.n_embd], dtype=self.dtype, device=self.device
+                    )
+                    for _ in range(2)
+                ]
+                for _ in range(self.config.n_layer)
+            ]
+        return past_key_values
+
+    def _generate_custom(
+        self,
+        inputs: Dict,
+        max_new_tokens: int,
+        use_cache: bool = True,
+        do_prefill: bool = True,
+        breakdown_latency: bool = False,
+        key_length_step: int = 1,
+        ignore_oom: bool = False,
+    ):
+        t0 = self._get_time(breakdown_latency)
         batch_size, input_length = inputs["input_ids"].shape
         output_length = input_length + max_new_tokens
         input_ids = torch.empty([batch_size, output_length], dtype=torch.int64, device=self.device)
         input_ids[:, :input_length].copy_(inputs["input_ids"])
+        if key_length_step > 1:
+            input_ids[:, input_length:].fill_(self.tokenizer.pad_token_id)
 
         attention_mask = torch.empty([batch_size, output_length], dtype=torch.bool, device=self.device)
         attention_mask[:, :input_length].copy_(inputs["attention_mask"])
@@ -208,54 +233,53 @@ class Pipeline:
         # TODO: Useless?
         position_ids[:, :input_length].masked_fill_(attention_mask[:, :input_length] == 0, 1)
 
-        if self.do_prefill or input_length<=1:
-            past_key_values=None
-            past_key_length=0
-        else:
-            # Generate mock `past_key_values`
-            past_key_length=input_length-1
-            if isinstance(self.config, GPTBigCodeConfig):
-                if self.config.pre_allocate_kv_cache:
-                    past_key_values=[past_key_length]*self.config.n_layer
-                    for block in self.model.transformer.h:
-                        block.attn.get_kv_cache(batch_size, past_key_length, dtype=self.dtype, device=self.device).normal_()
+        t1 = self._get_time(breakdown_latency)
+        last_time = t1
+        past_key_length = 0
+        past_key_values = None
+        generate_times = {}
+        for key_length in range(input_length, output_length, key_length_step):
+            try:
+                if (
+                    use_cache
+                    and (past_key_values is None and not do_prefill)
+                    or (past_key_values is not None and key_length_step > 1)
+                ):
+                    past_key_length = key_length - 1
+                    past_key_values = self._allocate_mock_cache(past_key_length, batch_size)
+                    # Exclude cache creation from timing
+                    last_time = self._get_time(breakdown_latency)
+                outputs = self.model(
+                    input_ids=input_ids[:, past_key_length:key_length],
+                    past_key_values=past_key_values,
+                    attention_mask=attention_mask[:, :key_length],
+                    position_ids=position_ids[:, past_key_length:key_length],
+                    return_dict=True,
+                    use_cache=use_cache,
+                )
+                if use_cache:
+                    past_key_values = outputs.past_key_values
+                    past_key_length = key_length
+                next_tokens = torch.argmax(outputs.logits[:, -1, :], dim=-1)
+                input_ids[:, key_length] = next_tokens
+                t2 = self._get_time(breakdown_latency)
+                generate_times[key_length] = t2 - last_time
+                last_time = t2
+            except torch.cuda.OutOfMemoryError:
+                if ignore_oom:
+                    logger.warning(f"Out of memory at key length {key_length}")
+                    break
                 else:
-                    kv_dim=self.config.n_embd // self.config.n_head if self.config.multi_query else self.config.n_embd
-                    past_key_values=[torch.randn([batch_size, past_key_length, 2*kv_dim], dtype=self.dtype, device=self.device) for _ in  range(self.config.n_layer)]
-            else:
-                past_key_values = [
-                    [torch.randn([batch_size, past_key_length, self.config.n_embd], dtype=self.dtype, device=self.device) for _ in range(2)] for _ in
-                    range(self.config.n_layer)]
+                    raise
 
-        t1 = self._get_time(self.breakdown_latency)
-        last_time=t1
-        generate_times={}
-        for key_length in range(input_length, output_length):
-            outputs = self.model(
-                input_ids=input_ids[:, past_key_length:key_length],
-                past_key_values=past_key_values,
-                attention_mask=attention_mask[:, :key_length],
-                position_ids=position_ids[:, past_key_length:key_length],
-                return_dict=True,
-                use_cache=self.use_cache,
-            )
-            if self.use_cache:
-                past_key_values=outputs.past_key_values
-                past_key_length=key_length
-            next_tokens = torch.argmax(outputs.logits[:, -1, :], dim=-1)
-            input_ids[:, key_length] = next_tokens
-            t2 = self._get_time(self.breakdown_latency)
-            generate_times[key_length]=t2-last_time
-            last_time=t2
-
-        metrics={}
-        if self.breakdown_latency:
-            metrics[Metrics.LATENCY_GENERATE_START]=t1-t0
-            metrics[Metrics.LATENCY_GENERATE_BREAKDOWN]=generate_times
+        metrics = {}
+        if breakdown_latency:
+            metrics[Metrics.LATENCY_GENERATE_START] = t1 - t0
+            metrics[Metrics.LATENCY_GENERATE_BREAKDOWN] = generate_times
 
         return input_ids, metrics
 
-    def _generate_hf(self, inputs:Dict, max_new_tokens:int):
+    def _generate_hf(self, inputs: Dict, max_new_tokens: int, use_cache: bool):
         inputs = {key: value.to(self.device) if torch.is_tensor(value) else value for key, value in inputs.items()}
         output = self.model.generate(
             **inputs,
@@ -263,18 +287,38 @@ class Pipeline:
             max_new_tokens=max_new_tokens,
             do_sample=False,
             pad_token_id=self.tokenizer.pad_token_id,
-            use_cache=self.use_cache,
+            use_cache=use_cache,
         )
-        return output.sequences, {}
+        return output.sequences
 
-
-    def __call__(self, text: List[str], max_new_tokens:int) -> Tuple[List[str], Dict[str, Any]]:
+    def __call__(
+        self,
+        text: List[str],
+        max_new_tokens: int,
+        custom_generate: bool = False,
+        use_cache: bool = True,
+        do_prefill: bool = True,
+        breakdown_latency=False,
+        key_length_step: int = 1,
+        ignore_oom: bool = False,
+    ) -> Tuple[List[str], Dict[str, Any]]:
         t0 = self._get_time()
         inputs = self.tokenizer(text, return_tensors="pt", padding=True)
 
         t1 = self._get_time()
         with torch.inference_mode():
-            output_tokens, generate_metrics = self._generate(inputs, max_new_tokens)
+            if custom_generate:
+                assert do_prefill or use_cache
+                output_tokens, generate_metrics = self._generate_custom(
+                    inputs, max_new_tokens, use_cache, do_prefill, breakdown_latency, key_length_step, ignore_oom
+                )
+            else:
+                assert do_prefill
+                assert not breakdown_latency
+                assert not ignore_oom
+                assert key_length_step == 1
+                output_tokens = self._generate_hf(inputs, max_new_tokens, use_cache)
+                generate_metrics = {}
         t2 = self._get_time(True)
 
         batch_size, input_length = inputs["input_ids"].shape
@@ -319,7 +363,7 @@ class Pipeline:
             )
         }
 
-        breakdown=all_metrics.pop(Metrics.LATENCY_GENERATE_BREAKDOWN, [])
+        breakdown = all_metrics.pop(Metrics.LATENCY_GENERATE_BREAKDOWN, [])
 
         mean_metrics = {key: np.mean(value).item() for key, value in all_metrics.items() if len(value) > 0}
         throughput = mean_metrics[Metrics.TOKENS_BATCH] / mean_metrics[Metrics.LATENCY_E2E]
@@ -327,7 +371,9 @@ class Pipeline:
 
         if len(breakdown) > 0:
             mean_metrics[Metrics.LATENCY_GENERATE_BREAKDOWN] = {
-                str(key): np.mean([values[key] for values in breakdown]).item() for key in breakdown[0]}
+                str(key): np.mean([values[key] for values in breakdown if key in values]).item()
+                for key in breakdown[0]
+            }
 
         return {
             **self.global_metrics,
