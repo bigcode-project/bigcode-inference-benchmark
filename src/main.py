@@ -11,7 +11,7 @@ import torch
 from src.metrics import Metrics
 from src.pipeline import Pipeline, get_pipeline_class
 from src.profile import get_profiler, logger
-from src.utils import configure_logging, get_dummy_batch, log_dict, log_rank_n, parse_config_args
+from src.utils import configure_logging, get_input_batch, log_dict, log_rank_n, parse_config_args
 
 
 def get_arg_parser() -> ArgumentParser:
@@ -40,6 +40,10 @@ def get_arg_parser() -> ArgumentParser:
     # Input and output
     parser.add_argument("--batch_size", "-b", default=1, type=int)
     parser.add_argument("--max_input_length", "-i", default=-1, type=int)
+    parser.add_argument("--sample_dir", "-d")
+    parser.add_argument("--input_pad_ratio", "--pad", default=0, type=float)
+    parser.add_argument("--pad_generated_tokens", "--pad_g", default=0, type=float)
+    parser.add_argument("--input_seed", "--seed", default=0, type=int)
     parser.add_argument("--max_new_tokens", "-g", default=100, type=int)
 
     # Cleanup
@@ -67,7 +71,6 @@ def main(argv: Optional[List[str]] = None) -> None:
     parser = get_arg_parser()
     args = parser.parse_args(argv)
     config_args = parse_config_args(args.config_args)
-    inputs = get_dummy_batch(args.batch_size, args.max_input_length)
     separate_profile = args.profile and args.profile_cycles is not None
     warmup = args.profile if args.warmup is None else args.warmup
     if separate_profile:
@@ -93,6 +96,14 @@ def main(argv: Optional[List[str]] = None) -> None:
         dtype=args.dtype,
         fast_init=args.fast_init,
         trust_remote_code=args.trust_remote_code,
+    )
+    inputs = get_input_batch(
+        args.batch_size,
+        args.max_input_length,
+        pipeline.tokenizer,
+        args.input_pad_ratio,
+        args.input_seed,
+        args.sample_dir,
     )
 
     all_metrics = []
@@ -145,6 +156,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 breakdown_latency=args.breakdown_latency,
                 key_length_step=args.key_length_step,
                 ignore_oom=args.ignore_oom,
+                pad_generated_tokens=args.pad_generated_tokens,
             )
             if args.profile:
                 p.step()

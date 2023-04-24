@@ -216,6 +216,7 @@ class Pipeline:
         breakdown_latency: bool = False,
         key_length_step: int = 1,
         ignore_oom: bool = False,
+        pad_generated_tokens: float = 0,
     ):
         t0 = self._get_time(breakdown_latency)
         batch_size, input_length = inputs["input_ids"].shape
@@ -227,7 +228,13 @@ class Pipeline:
 
         attention_mask = torch.empty([batch_size, output_length], dtype=torch.bool, device=self.device)
         attention_mask[:, :input_length].copy_(inputs["attention_mask"])
-        attention_mask[:, input_length:].fill_(True)
+        if pad_generated_tokens > 0:
+            attention_mask[:, input_length:].copy_(
+                torch.empty_like(attention_mask[:, input_length:], dtype=torch.float32).uniform_()
+                > pad_generated_tokens
+            )
+        else:
+            attention_mask[:, input_length:].fill_(True)
 
         position_ids = attention_mask.long().cumsum(-1, dtype=torch.int64) - 1
         # TODO: Useless?
@@ -301,6 +308,7 @@ class Pipeline:
         breakdown_latency=False,
         key_length_step: int = 1,
         ignore_oom: bool = False,
+        pad_generated_tokens: float = 0,
     ) -> Tuple[List[str], Dict[str, Any]]:
         t0 = self._get_time()
         inputs = self.tokenizer(text, return_tensors="pt", padding=True)
@@ -310,13 +318,21 @@ class Pipeline:
             if custom_generate:
                 assert do_prefill or use_cache
                 output_tokens, generate_metrics = self._generate_custom(
-                    inputs, max_new_tokens, use_cache, do_prefill, breakdown_latency, key_length_step, ignore_oom
+                    inputs,
+                    max_new_tokens,
+                    use_cache,
+                    do_prefill,
+                    breakdown_latency,
+                    key_length_step,
+                    ignore_oom,
+                    pad_generated_tokens,
                 )
             else:
                 assert do_prefill
                 assert not breakdown_latency
                 assert not ignore_oom
                 assert key_length_step == 1
+                assert pad_generated_tokens == 0
                 output_tokens = self._generate_hf(inputs, max_new_tokens, use_cache)
                 generate_metrics = {}
         t2 = self._get_time(True)
