@@ -2,5 +2,6 @@
 !src
 !scripts
 !transformers
+!text-generation-inference
 !requirements.txt
 !Makefile
