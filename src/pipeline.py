@@ -75,7 +75,6 @@ class Pipeline:
         else:
             self.model = self._load_pretrained(pretrained_model)
 
-        self.model.eval()
         t3 = self._get_time()
         self.global_metrics[Metrics.INIT_TOKEN] = t1 - t0
         self.global_metrics[Metrics.INIT_CONFIG] = t2 - t1
@@ -101,7 +100,7 @@ class Pipeline:
         self.global_metrics[Metrics.INIT_DEVICE] = t2 - t1
         self.global_metrics[Metrics.INIT_WEIGHTS] = t3 - t2
 
-        return model
+        return model.eval()
 
     def _reload_model(self):
         self._save_pretrained("tmp")
@@ -136,7 +135,7 @@ class Pipeline:
             model = model.to(self.device)
             t2 = self._get_time()
             self.global_metrics[Metrics.INIT_DEVICE] = t2 - t1
-        return model
+        return model.eval()
 
     def _get_config(
         self,
@@ -386,8 +385,8 @@ class Pipeline:
         breakdown = all_metrics.pop(Metrics.LATENCY_GENERATE_BREAKDOWN, [])
 
         mean_metrics = {key: np.mean(value).item() for key, value in all_metrics.items() if len(value) > 0}
-        throughput = mean_metrics[Metrics.TOKENS_BATCH] / mean_metrics[Metrics.LATENCY_E2E]
-        model_throughput = mean_metrics[Metrics.TOKENS_BATCH] / mean_metrics[Metrics.LATENCY_MODEL]
+        throughput = mean_metrics.get(Metrics.TOKENS_BATCH, 0) / mean_metrics.get(Metrics.LATENCY_E2E, 1)
+        model_throughput = mean_metrics.get(Metrics.TOKENS_BATCH, 0) / mean_metrics.get(Metrics.LATENCY_MODEL, 1)
 
         if len(breakdown) > 0:
             mean_metrics[Metrics.LATENCY_GENERATE_BREAKDOWN] = {
@@ -487,9 +486,12 @@ class TextGenModelWrapper:
 class TG_Pipeline(Pipeline):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # TODO: Ignoring dtype
 
         if self.device != torch.device("cuda:0"):
             raise ValueError(f"Textgen does not support device {self.device}")
+
+        self.config = self.model.model.transformer.config
 
     def _get_config(
         self,
@@ -512,13 +514,76 @@ class TG_Pipeline(Pipeline):
         from text_generation_server.models import get_model
 
         pretrained_model, revision = parse_revision(pretrained_model)
-        return get_model(pretrained_model, revision, False, False)
+
+        with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
+            return get_model(pretrained_model, revision, False, False)
 
     def _generate_hf(self, inputs: Dict, max_new_tokens: int, use_cache: bool):
         raise NotImplementedError()
 
     def _allocate_mock_cache(self, past_key_length: int, batch_size: int):
         raise NotImplementedError()
+
+    def get_num_parameters(self) -> int:
+        return 0
+
+    def _update_generate_batch(self, batch, use_cache, do_prefill, key_length):
+        from text_generation_server.models.flash_causal_lm import FlashCausalLMBatch
+
+        assert do_prefill or use_cache
+
+        if isinstance(batch, FlashCausalLMBatch):
+            # Tested for flash santacoder only
+            assert max(batch.input_lengths) == batch.max_seqlen
+            seqlen_diff = key_length - batch.max_seqlen
+            assert seqlen_diff >= 0
+            if batch.past_key_values is None:
+                mock_cache = use_cache and not do_prefill
+            else:
+                if not use_cache:
+                    batch.past_key_values = None
+                mock_cache = use_cache and seqlen_diff > 0
+            if mock_cache:
+                batch.past_key_values = []
+
+            for i, old_length in enumerate(batch.input_lengths):
+                length = old_length + seqlen_diff
+                batch.input_lengths[i] = length
+                batch.max_seqlen = max(batch.max_seqlen, length)
+                add_tokens = [self.tokenizer.pad_token_id] * seqlen_diff
+                batch.all_input_ids[i].extend(add_tokens)
+                batch.all_input_ids_tensor[i][old_length:length] = torch.tensor(add_tokens)
+                batch.cu_seqlens[(i + 1)] = batch.cu_seqlens[i] + length
+
+                if use_cache and batch.past_key_values is not None:
+                    # Decode
+                    batch.input_ids[i] = batch.all_input_ids_tensor[i][length - 1 : length]
+                    batch.position_ids[i] = length - 1
+                    if mock_cache:
+                        batch.stopping_criterias[i].current_tokens = max(batch.stopping_criterias[i].current_tokens, 1)
+                        batch.past_key_values.append(
+                            torch.randn(
+                                [self.config.n_layer, length, 2, 1, self.config.n_embd // self.config.n_head],
+                                dtype=self.model.dtype,
+                                device=self.device,
+                            )
+                        )
+                        batch.past_key_values.append(
+                            torch.zeros(
+                                [self.config.n_layer, 1, 2, 1, self.config.n_embd // self.config.n_head],
+                                dtype=self.model.dtype,
+                                device=self.device,
+                            )
+                        )
+                else:
+                    # Prefill
+                    batch.input_ids[i] = batch.all_input_ids_tensor[i][:length]
+                    batch.position_ids[i] = torch.arange(0, length, dtype=torch.int32, device=self.device)
+
+            assert batch.max_seqlen == key_length
+
+        else:
+            raise NotImplementedError()
 
     def _generate_textgen(
         self,
@@ -532,12 +597,9 @@ class TG_Pipeline(Pipeline):
         pad_generated_tokens: float = 0,
     ):
         t0 = self._get_time(breakdown_latency)
-        # TODO: Implement
-        assert do_prefill
-        assert key_length_step == 1
+        assert do_prefill or use_cache
+        # TODO: Implement?
         assert pad_generated_tokens == 0
-
-        batch_size = len(batch)
 
         input_length = max(batch.input_lengths)
         output_length = input_length + max_new_tokens
@@ -548,6 +610,9 @@ class TG_Pipeline(Pipeline):
         with torch.inference_mode():
             for key_length in range(input_length, output_length, key_length_step):
                 try:
+                    if key_length_step > 1 or not use_cache or not do_prefill:
+                        self._update_generate_batch(batch, use_cache, do_prefill, key_length)
+                        last_time = self._get_time(breakdown_latency)
                     generated, batch = self.model.generate_token(batch)
                     t2 = self._get_time(breakdown_latency)
                     generate_times[key_length] = t2 - last_time
@@ -558,7 +623,7 @@ class TG_Pipeline(Pipeline):
                         break
                     else:
                         raise
-        output_text = [g.text for g in generated]
+        output_text = ["" if g.generated_text is None else g.generated_text.text for g in generated]
 
         metrics = {}
         if breakdown_latency:
@@ -580,7 +645,6 @@ class TG_Pipeline(Pipeline):
         pad_generated_tokens: float = 0,
     ) -> Tuple[List[str], Dict[str, Any]]:
         t0 = self._get_time()
-        inputs = self.tokenizer(text, return_tensors="pt", padding=True)
 
         from text_generation_server.pb import generate_pb2
         from text_generation_server.models.model import Model
@@ -592,7 +656,7 @@ class TG_Pipeline(Pipeline):
             requests=[
                 generate_pb2.Request(
                     id=i,
-                    inputs=input_,
+                    inputs=t,
                     truncate=99999,
                     parameters=generate_pb2.NextTokenChooserParameters(
                         temperature=1.0,
@@ -610,9 +674,9 @@ class TG_Pipeline(Pipeline):
                         ignore_eos_token=True,
                     ),
                 )
-                for i, input_ in enumerate(inputs)
+                for i, t in enumerate(text)
             ],
-            size=len(inputs),
+            size=len(text),
             max_tokens=0,  # Ignored
         )
         batch = model.batch_type.from_pb(batch_pb, self.tokenizer, self.device)
