@@ -18,30 +18,14 @@ SAVE_DIR=data/benchmarks/v2
 RUN="python3 src/main.py --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom"
 
 
-RUNTIME=("" "pre_allocate_kv_cache=True" "pre_allocate_kv_cache=True inference_runner=3")
-RUNTIME_NAMES=("base" "pre_allocate" "graph")
+RUNTIME=("")
+RUNTIME_NAMES=("base")
 
 ATTN=( \
-  "attention_implementation=0" \
-  "attention_implementation=1" \
-  "attention_implementation=1 --pad_generated_tokens=0.5" \
-  "attention_implementation=2" \
-  "attention_implementation=0 fused_softmax=False" \
-  "attention_implementation=0 fused_softmax=True" \
-  "attention_implementation=3" \
-  "attention_implementation=4" \
-  "attention_implementation=5" \
+  "--pipeline_class=TG_Pipeline" \
   )
 ATTN_NAME=( \
-  "default" \
-  "flash" \
-  "flash_unpad_50" \
-  "torch" \
-  "no_jit" \
-  "jit" \
-  "torchflash" \
-  "torchmem" \
-  "torchcpp" \
+  "textgen" \
   )
 
 
@@ -65,14 +49,8 @@ run () { # run(step, runtime, attn)
 if [ "${STEP_ID}" -eq "0" ]
 then
   # Decode (default attn only)
-  for runtime in {0..2}
-  do
-    run 0 $runtime 0
-  done
+  run 0 0 0
 else
-  # Prefill (all runtimes are the same)
-  for attn in {0..2}
-  do
-    run 1 0 $attn
-  done
+  # Prefill
+  run 1 0 0
 fi

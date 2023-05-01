@@ -21,6 +21,10 @@ from transformers import (
     GPTBigCodeConfig,
 )
 
+from transformers.modeling_outputs import (
+    CausalLMOutputWithCrossAttentions,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -413,7 +417,7 @@ class DS_Pipeline(Pipeline):
 
         super().__init__(**kwargs)
 
-        if self.device != torch.device("cuda"):
+        if self.device != torch.device("cuda:0"):
             raise ValueError(f"Deepspeed does not support device {self.device}")
 
         if self.dtype not in (torch.float32, torch.float16, torch.bfloat16):
@@ -433,10 +437,21 @@ class DS_Pipeline(Pipeline):
 
 class TextGenModelWrapper:
     def __init__(self, model):
+        from text_generation_server.models import CausalLM, FlashCausalLM
+
         self.model = model
+        if isinstance(self.model, FlashCausalLM):
+            self._is_flash = True
+        elif isinstance(self.model, CausalLM):
+            self._is_flash = False
+        else:
+            raise NotImplementedError()
 
     def parameters(self):
-        return self.model.parameters()
+        return []
+
+    def eval(self):
+        pass
 
     def __call__(
         self,
@@ -447,15 +462,34 @@ class TextGenModelWrapper:
         return_dict,
         use_cache,
     ):
-        return self.model(input_ids, attention_mask, position_ids, past_key_values)
+        if self._is_flash:
+            raise NotImplementedError()
+            logits, past_key_values = self.model.forward(
+                input_ids,
+                position_ids,
+                cu_seqlens,
+                max_s,
+                past_key_values,
+                pre_allocate_past_size,
+            )
+        else:
+            logits, past_key_values = self.model.forward(input_ids, attention_mask, position_ids, past_key_values)
+        return CausalLMOutputWithCrossAttentions(
+            loss=None,
+            logits=logits,
+            past_key_values=past_key_values,
+            hidden_states=None,
+            attentions=None,
+            cross_attentions=None,
+        )
 
 
 class TG_Pipeline(Pipeline):
     def __init__(self, **kwargs):
-        if self.device != torch.device("cuda"):
-            raise ValueError(f"Textgen does not support device {self.device}")
-
         super().__init__(**kwargs)
+
+        if self.device != torch.device("cuda:0"):
+            raise ValueError(f"Textgen does not support device {self.device}")
 
     def _get_config(
         self,
@@ -475,7 +509,7 @@ class TG_Pipeline(Pipeline):
         raise NotImplementedError()
 
     def _load_pretrained(self, pretrained_model: str):
-        from text_generation_server import get_model
+        from text_generation_server.models import get_model
 
         pretrained_model, revision = parse_revision(pretrained_model)
         return TextGenModelWrapper(get_model(pretrained_model, revision, False, False))

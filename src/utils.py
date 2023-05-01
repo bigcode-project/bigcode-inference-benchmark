@@ -149,8 +149,11 @@ def get_inputs_from_tokens(tokens, length, tokenizer):
     raise RuntimeError("Failed to generate stable input sequences")
 
 
-def get_random_inputs(length, tokenizer, random_state):
-    return get_inputs_from_tokens(random_state.randint(0, tokenizer.vocab_size, length).tolist(), length, tokenizer)
+def get_random_inputs(lengths, tokenizer, random_state):
+    return [
+        get_inputs_from_tokens(random_state.randint(0, tokenizer.vocab_size, length).tolist(), length, tokenizer)
+        for length in lengths
+    ]
 
 
 def get_inputs_from_files(files: List[Path], lengths, tokenizer, random_state):
