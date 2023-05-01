@@ -512,13 +512,139 @@ class TG_Pipeline(Pipeline):
         from text_generation_server.models import get_model
 
         pretrained_model, revision = parse_revision(pretrained_model)
-        return TextGenModelWrapper(get_model(pretrained_model, revision, False, False))
+        return get_model(pretrained_model, revision, False, False)
 
     def _generate_hf(self, inputs: Dict, max_new_tokens: int, use_cache: bool):
         raise NotImplementedError()
 
     def _allocate_mock_cache(self, past_key_length: int, batch_size: int):
         raise NotImplementedError()
+
+    def _generate_textgen(
+        self,
+        batch,
+        max_new_tokens: int,
+        use_cache: bool = True,
+        do_prefill: bool = True,
+        breakdown_latency: bool = False,
+        key_length_step: int = 1,
+        ignore_oom: bool = False,
+        pad_generated_tokens: float = 0,
+    ):
+        t0 = self._get_time(breakdown_latency)
+        # TODO: Implement
+        assert do_prefill
+        assert key_length_step == 1
+        assert pad_generated_tokens == 0
+
+        batch_size = len(batch)
+
+        input_length = max(batch.input_lengths)
+        output_length = input_length + max_new_tokens
+
+        t1 = self._get_time(breakdown_latency)
+        last_time = t1
+        generate_times = {}
+        with torch.inference_mode():
+            for key_length in range(input_length, output_length, key_length_step):
+                try:
+                    generated, batch = self.model.generate_token(batch)
+                    t2 = self._get_time(breakdown_latency)
+                    generate_times[key_length] = t2 - last_time
+                    last_time = t2
+                except torch.cuda.OutOfMemoryError:
+                    if ignore_oom:
+                        logger.warning(f"Out of memory at key length {None}")
+                        break
+                    else:
+                        raise
+        output_text = [g.text for g in generated]
+
+        metrics = {}
+        if breakdown_latency:
+            metrics[Metrics.LATENCY_GENERATE_START] = t1 - t0
+            metrics[Metrics.LATENCY_GENERATE_BREAKDOWN] = generate_times
+
+        return output_text, metrics
+
+    def __call__(
+        self,
+        text: List[str],
+        max_new_tokens: int,
+        custom_generate: bool = False,
+        use_cache: bool = True,
+        do_prefill: bool = True,
+        breakdown_latency=False,
+        key_length_step: int = 1,
+        ignore_oom: bool = False,
+        pad_generated_tokens: float = 0,
+    ) -> Tuple[List[str], Dict[str, Any]]:
+        t0 = self._get_time()
+        inputs = self.tokenizer(text, return_tensors="pt", padding=True)
+
+        from text_generation_server.pb import generate_pb2
+        from text_generation_server.models.model import Model
+
+        model: Model = self.model
+
+        batch_pb = generate_pb2.Batch(
+            id=0,
+            requests=[
+                generate_pb2.Request(
+                    id=i,
+                    inputs=input_,
+                    truncate=99999,
+                    parameters=generate_pb2.NextTokenChooserParameters(
+                        temperature=1.0,
+                        top_k=1,
+                        top_p=1,
+                        typical_p=1,
+                        do_sample=False,
+                        seed=0,
+                        repetition_penalty=1.0,
+                        watermark=False,
+                    ),
+                    stopping_parameters=generate_pb2.StoppingCriteriaParameters(
+                        max_new_tokens=max_new_tokens,
+                        stop_sequences=None,
+                        ignore_eos_token=True,
+                    ),
+                )
+                for i, input_ in enumerate(inputs)
+            ],
+            size=len(inputs),
+            max_tokens=0,  # Ignored
+        )
+        batch = model.batch_type.from_pb(batch_pb, self.tokenizer, self.device)
+        batch_size = len(batch)
+
+        # TODO: Implement
+        input_length = max(batch.input_lengths)
+        output_length = input_length + max_new_tokens
+
+        output_text, generate_metrics = self._generate_textgen(
+            batch,
+            max_new_tokens,
+            use_cache,
+            do_prefill,
+            breakdown_latency,
+            key_length_step,
+            ignore_oom,
+            pad_generated_tokens,
+        )
+        t1 = self._get_time(True)
+
+        metrics = {
+            **generate_metrics,
+            Metrics.BATCH_SIZE: batch_size,
+            Metrics.INPUT_LENGTH: input_length,
+            Metrics.OUTPUT_LENGTH: output_length,
+            Metrics.TOKENS_SAMPLE: output_length - input_length,
+            Metrics.TOKENS_BATCH: batch_size * (output_length - input_length),
+            Metrics.LATENCY_E2E: t1 - t0,
+        }
+
+        return output_text, metrics
 
 
 _PIPELINE_CLASS_MAP = {
