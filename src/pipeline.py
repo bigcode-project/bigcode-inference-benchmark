@@ -431,9 +431,66 @@ class DS_Pipeline(Pipeline):
         )
 
 
+class TextGenModelWrapper:
+    def __init__(self, model):
+        self.model = model
+
+    def parameters(self):
+        return self.model.parameters()
+
+    def __call__(
+        self,
+        input_ids,
+        past_key_values,
+        attention_mask,
+        position_ids,
+        return_dict,
+        use_cache,
+    ):
+        return self.model(input_ids, attention_mask, position_ids, past_key_values)
+
+
+class TG_Pipeline(Pipeline):
+    def __init__(self, **kwargs):
+        if self.device != torch.device("cuda"):
+            raise ValueError(f"Textgen does not support device {self.device}")
+
+        super().__init__(**kwargs)
+
+    def _get_config(
+        self,
+        model_type: Optional[str],
+        pretrained_config: Optional[str],
+        config_args: Dict[str, Any],
+    ) -> Optional[PretrainedConfig]:
+        return None
+
+    def _create_model(self) -> PreTrainedModel:
+        raise NotImplementedError()
+
+    def _reload_model(self):
+        raise NotImplementedError()
+
+    def _save_pretrained(self, pretrained_model: str):
+        raise NotImplementedError()
+
+    def _load_pretrained(self, pretrained_model: str):
+        from text_generation_server import get_model
+
+        pretrained_model, revision = parse_revision(pretrained_model)
+        return TextGenModelWrapper(get_model(pretrained_model, revision, False, False))
+
+    def _generate_hf(self, inputs: Dict, max_new_tokens: int, use_cache: bool):
+        raise NotImplementedError()
+
+    def _allocate_mock_cache(self, past_key_length: int, batch_size: int):
+        raise NotImplementedError()
+
+
 _PIPELINE_CLASS_MAP = {
     "HF_Pipeline": HF_Pipeline,
     "DS_Pipeline": DS_Pipeline,
+    "TG_Pipeline": TG_Pipeline,
 }
 
 
