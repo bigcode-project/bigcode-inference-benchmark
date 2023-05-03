@@ -15,7 +15,7 @@ CYCLES=${8:-10}
 
 SAVE_DIR=data/benchmarks/v2
 #BATCH_SIZES="1 2 4 8 16 24 32 48 64 96 128 160 224 256"
-RUN="python3 src/main.py --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom"
+RUN="python3 src/main.py --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom --no_fast_init"
 
 
 RUNTIME=("")

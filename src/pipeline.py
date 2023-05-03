@@ -534,9 +534,11 @@ class TG_Pipeline(Pipeline):
 
         if isinstance(batch, FlashCausalLMBatch):
             # Tested for flash santacoder only
+            # TODO: Fix batch size 1
             assert max(batch.input_lengths) == batch.max_seqlen
             seqlen_diff = key_length - batch.max_seqlen
             assert seqlen_diff >= 0
+            kv_shape = [2, 1, self.config.n_embd // self.config.n_head]
             if batch.past_key_values is None:
                 mock_cache = use_cache and not do_prefill
             else:
@@ -544,7 +546,14 @@ class TG_Pipeline(Pipeline):
                     batch.past_key_values = None
                 mock_cache = use_cache and seqlen_diff > 0
             if mock_cache:
-                batch.past_key_values = []
+                if len(batch.input_lengths) > 1:
+                    batch.past_key_values = []
+                else:
+                    batch.past_key_values = torch.randn(
+                        [self.config.n_layer, batch.max_tokens, *kv_shape],
+                        dtype=self.model.dtype,
+                        device=self.device,
+                    )
 
             for i, old_length in enumerate(batch.input_lengths):
                 length = old_length + seqlen_diff
@@ -559,18 +568,18 @@ class TG_Pipeline(Pipeline):
                     # Decode
                     batch.input_ids[i] = batch.all_input_ids_tensor[i][length - 1 : length]
                     batch.position_ids[i] = length - 1
-                    if mock_cache:
+                    if mock_cache and len(batch.input_lengths) > 1:
                         batch.stopping_criterias[i].current_tokens = max(batch.stopping_criterias[i].current_tokens, 1)
                         batch.past_key_values.append(
                             torch.randn(
-                                [self.config.n_layer, length, 2, 1, self.config.n_embd // self.config.n_head],
+                                [self.config.n_layer, length, *kv_shape],
                                 dtype=self.model.dtype,
                                 device=self.device,
                             )
                         )
                         batch.past_key_values.append(
                             torch.zeros(
-                                [self.config.n_layer, 1, 2, 1, self.config.n_embd // self.config.n_head],
+                                [self.config.n_layer, 1, *kv_shape],
                                 dtype=self.model.dtype,
                                 device=self.device,
                             )
@@ -660,7 +669,6 @@ class TG_Pipeline(Pipeline):
                     truncate=99999,
                     parameters=generate_pb2.NextTokenChooserParameters(
                         temperature=1.0,
-                        top_k=1,
                         top_p=1,
                         typical_p=1,
                         do_sample=False,
