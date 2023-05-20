@@ -179,10 +179,10 @@ def main(argv: Optional[List[str]] = None) -> None:
         benchmark_metrics[Metrics.MEMORY_RESERVED_MAX] = torch.cuda.max_memory_reserved()
 
     t3 = time.perf_counter()
-    benchmark_metrics[Metrics.RUNTIME_BENCHMARK] = t3 - t2
     benchmark_metrics[Metrics.RUNTIME_TOTAL] = t3 - t0
 
     if len(all_metrics) > 0:
+        benchmark_metrics[Metrics.RUNTIME_BENCHMARK] = t3 - t2
         benchmark_metrics.update(pipeline.aggregate_metrics(all_metrics))
 
     benchmark_metrics = Metrics.reorder_metrics(benchmark_metrics)

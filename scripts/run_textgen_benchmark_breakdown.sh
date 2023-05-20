@@ -10,47 +10,41 @@ MAX_NEW_TOKENS=${4:-2040}
 # Prime number to see key length padding effect.
 TOKEN_STEP=${5:-5}
 STEP_ID=${6:-""}
-FILE_PREFIX=${7:-""}
-CYCLES=${8:-10}
+CYCLES=${7:-10}
 
-SAVE_DIR=data/benchmarks/v2
+SAVE_DIR=data/benchmarks/v3
 #BATCH_SIZES="1 2 4 8 16 24 32 48 64 96 128 160 224 256"
-RUN="python3 src/main.py --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom --no_fast_init"
+RUN="python3 src/main.py --pipeline_class=TG_Pipeline --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom --no_fast_init "
 
 
-RUNTIME=("")
-RUNTIME_NAMES=("base")
-
-ATTN=( \
-  "--pipeline_class=TG_Pipeline" \
-  )
-ATTN_NAME=( \
-  "textgen" \
-  )
+IMPL=("flash" "santa" "causal" "vector" "bigcode")
 
 
 STEP=("--no_prefill" "--no_cache")
 STEP_NAME=("decode" "prefill")
 
-COMMON="--pretrained_model=$MODEL_PATH --tokenizer=$MODEL_PATH --cycles=$CYCLES --max_input_length=1 --max_new_tokens=$MAX_NEW_TOKENS --key_length_step=$TOKEN_STEP --batch_size=$BATCH_SIZE predict_last_token=True"
+COMMON="--pretrained_model=$MODEL_PATH --tokenizer=$MODEL_PATH --cycles=$CYCLES --max_input_length=1 --max_new_tokens=$MAX_NEW_TOKENS --key_length_step=$TOKEN_STEP --batch_size=$BATCH_SIZE"
 
 run () { # run(step, runtime, attn)
-  FILE_NAME="$SAVE_DIR"/"$MODEL_NAME"_bs_"$BATCH_SIZE"_tok_"$MAX_NEW_TOKENS"_step_"$TOKEN_STEP"_"${STEP_NAME[$1]}"/"$FILE_PREFIX""${RUNTIME_NAMES[$2]}"_"${ATTN_NAME[$3]}".json
+  FILE_NAME="$SAVE_DIR"/"$MODEL_NAME"_bs_"$BATCH_SIZE"_tok_"$MAX_NEW_TOKENS"_"${STEP_NAME[$1]}"_step_"$TOKEN_STEP"_"$CYCLES"/"${IMPL[$2]}".json
   if [ -f "$FILE_NAME" ];
   then
     echo "Skipping existing $FILE_NAME"
   else
-    CMD="$RUN $COMMON  ${RUNTIME[$2]} ${ATTN[$3]} ${STEP[$1]} --save=$FILE_NAME"
+    CMD="MODEL_TYPE=${IMPL[$2]} $RUN $COMMON ${STEP[$1]} --save=$FILE_NAME"
     echo "$CMD"
     $CMD
   fi
 }
 
-if [ "${STEP_ID}" -eq "0" ]
-then
-  # Decode (default attn only)
-  run 0 0 0
-else
-  # Prefill
-  run 1 0 0
-fi
+for impl in {0..4}
+do
+  if [ "${STEP_ID}" -eq "0" ]
+  then
+    # Decode (default attn only)
+    run 0 $impl
+  else
+    # Prefill
+    run 1 $impl
+  fi
+done

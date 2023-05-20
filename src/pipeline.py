@@ -516,7 +516,7 @@ class TG_Pipeline(Pipeline):
         pretrained_model, revision = parse_revision(pretrained_model)
 
         with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
-            return get_model(pretrained_model, revision, False, False)
+            return get_model(pretrained_model, revision, False, None)
 
     def _generate_hf(self, inputs: Dict, max_new_tokens: int, use_cache: bool):
         raise NotImplementedError()
@@ -715,6 +715,8 @@ class TG_Pipeline(Pipeline):
             Metrics.TOKENS_BATCH: batch_size * (output_length - input_length),
             Metrics.LATENCY_E2E: t1 - t0,
         }
+
+        output_text=[i+o for i, o in zip(text, output_text)]
 
         return output_text, metrics
 
