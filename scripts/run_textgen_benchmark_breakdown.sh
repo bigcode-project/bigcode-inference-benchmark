@@ -14,13 +14,13 @@ CYCLES=${7:-10}
 
 SAVE_DIR=data/benchmarks/v3
 #BATCH_SIZES="1 2 4 8 16 24 32 48 64 96 128 160 224 256"
-RUN="python3 src/main.py --pipeline_class=TG_Pipeline --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom --no_fast_init "
+RUN="python3 -m src.main --pipeline_class=TG_Pipeline --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom --no_fast_init "
 
 
-IMPL=("flash" "santa" "causal" "vector" "bigcode")
+IMPL=("flash" "causal" "vector" "bigcode")
 
 
-STEP=("--no_prefill" "--no_cache")
+STEP=("" "--no_cache")
 STEP_NAME=("decode" "prefill")
 
 COMMON="--pretrained_model=$MODEL_PATH --tokenizer=$MODEL_PATH --cycles=$CYCLES --max_input_length=1 --max_new_tokens=$MAX_NEW_TOKENS --key_length_step=$TOKEN_STEP --batch_size=$BATCH_SIZE"
@@ -31,13 +31,14 @@ run () { # run(step, runtime, attn)
   then
     echo "Skipping existing $FILE_NAME"
   else
-    CMD="MODEL_TYPE=${IMPL[$2]} $RUN $COMMON ${STEP[$1]} --save=$FILE_NAME"
-    echo "$CMD"
+    export MODEL_TYPE="${IMPL[$2]}"
+    CMD="$RUN $COMMON ${STEP[$1]} --save=$FILE_NAME"
+    echo "MODEL_TYPE=${IMPL[$2]} $CMD"
     $CMD
   fi
 }
 
-for impl in {0..4}
+for impl in {0..3}
 do
   if [ "${STEP_ID}" -eq "0" ]
   then

@@ -62,8 +62,8 @@ def main(argv: Optional[List[str]] = None) -> None:
     dirname = args.input_dir.stem
     if title is None:
         try:
-            name, _, bs, _, _, _, _, step = dirname.rsplit("_", 7)
-            title = f"{name} {step}, bs = {bs}"
+            name, _, bs, _, _, _, _, step, cycles = dirname.rsplit("_", 8)
+            title = f"{name}, bs = {bs} (s={step}, c={cycles})"
         except ValueError:
             title = dirname
 
