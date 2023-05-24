@@ -619,8 +619,8 @@ class TG_Pipeline(Pipeline):
         with torch.inference_mode():
             for key_length in range(input_length, output_length, key_length_step):
                 try:
-                    if (key_length_step > 1 and key_length>key_length) or not use_cache or not do_prefill:
-                        if not hasattr(self.model,"fast_forward"):
+                    if (key_length_step > 1 and key_length > key_length) or not use_cache or not do_prefill:
+                        if not hasattr(self.model, "fast_forward"):
                             raise NotImplementedError()
                         self.model.fast_forward(batch, key_length, use_cache)
                         last_time = self._get_time(breakdown_latency)
@@ -718,7 +718,7 @@ class TG_Pipeline(Pipeline):
             Metrics.LATENCY_E2E: t1 - t0,
         }
 
-        output_text=[i+o for i, o in zip(text, output_text)]
+        output_text = [i + o for i, o in zip(text, output_text)]
 
         return output_text, metrics
 

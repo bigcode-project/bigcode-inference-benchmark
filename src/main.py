@@ -58,6 +58,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--max_log_outputs", type=int)
     parser.add_argument("--breakdown_latency", "--bl", action="store_true")
     parser.add_argument("--profile", "-p", action="store_true")
+    parser.add_argument("--profile_cpu", "--pcpu", action="store_true")
     parser.add_argument("--profile_cycles", "--pc", type=int)
     parser.add_argument("--full_trace", "--pt", action="store_true")
     parser.add_argument("--show_op_names", "--pn", action="store_true")
@@ -108,13 +109,16 @@ def main(argv: Optional[List[str]] = None) -> None:
 
     all_metrics = []
 
-    if args.profile:
+    profile = args.profile or args.profile_cpu
+
+    if profile:
         profiler = get_profiler(
             skip=args.skip + pre_warmup_cycles,
             warmup=warmup,
             cycles=post_warmup_cycles,
             full_trace=args.full_trace,
             show_op_names=args.show_op_names,
+            cpu=args.profile_cpu,
         )
     else:
         profiler = contextlib.nullcontext()
@@ -125,7 +129,7 @@ def main(argv: Optional[List[str]] = None) -> None:
         "Cycles (warmup)": args.skip + warmup,
         "Cycles (benchmark)": args.cycles,
     }
-    if args.profile:
+    if profile:
         benchmark_metrics["Cycles (profile)"] = post_warmup_cycles
     benchmark_metrics["Cycles (total)"] = args.skip + warmup + pre_warmup_cycles + post_warmup_cycles
 
@@ -158,7 +162,7 @@ def main(argv: Optional[List[str]] = None) -> None:
                 ignore_oom=args.ignore_oom,
                 pad_generated_tokens=args.pad_generated_tokens,
             )
-            if args.profile:
+            if profile:
                 p.step()
 
             if step == 0:
