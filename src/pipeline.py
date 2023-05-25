@@ -619,10 +619,10 @@ class TG_Pipeline(Pipeline):
         with torch.inference_mode():
             for key_length in range(input_length, output_length, key_length_step):
                 try:
-                    if (key_length_step > 1 and key_length > key_length) or not use_cache or not do_prefill:
+                    if (key_length_step > 1 and key_length > input_length) or not use_cache or not do_prefill:
                         if not hasattr(self.model, "fast_forward"):
                             raise NotImplementedError()
-                        self.model.fast_forward(batch, key_length, use_cache)
+                        self.model.fast_forward(batch, key_length, self.dtype if use_cache else None)
                         last_time = self._get_time(breakdown_latency)
                     generated, batch = self.model.generate_token(batch)
                     t2 = self._get_time(breakdown_latency)

@@ -17,7 +17,7 @@ SAVE_DIR=data/benchmarks/v3
 RUN="python3 -m src.main --pipeline_class=TG_Pipeline --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom --no_fast_init "
 
 
-IMPL=("flash" "causal" "vector" "bigcode")
+IMPL=("flash" "causal" "vector" "bigcode" "bigcode2")
 
 
 STEP=("" "--no_cache")
@@ -38,7 +38,7 @@ run () { # run(step, runtime, attn)
   fi
 }
 
-for impl in {0..3}
+for impl in {0..4}
 do
   if [ "${STEP_ID}" -eq "0" ]
   then
