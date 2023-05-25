@@ -12,7 +12,7 @@ TOKEN_STEP=${5:-5}
 STEP_ID=${6:-""}
 CYCLES=${7:-10}
 
-SAVE_DIR=data/benchmarks/v3
+SAVE_DIR=data/benchmarks/v4
 #BATCH_SIZES="1 2 4 8 16 24 32 48 64 96 128 160 224 256"
 RUN="python3 -m src.main --pipeline_class=TG_Pipeline --max_log_outputs=0 --dtype=float16 --device=cuda  --custom_generate  --breakdown_latency --ignore_oom --no_fast_init "
 
