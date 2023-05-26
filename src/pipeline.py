@@ -630,7 +630,7 @@ class TG_Pipeline(Pipeline):
                     last_time = t2
                 except torch.cuda.OutOfMemoryError:
                     if ignore_oom:
-                        logger.warning(f"Out of memory at key length {None}")
+                        logger.warning(f"Out of memory at key length {key_length}")
                         break
                     else:
                         raise
