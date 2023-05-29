@@ -491,7 +491,7 @@ class TG_Pipeline(Pipeline):
         if self.device != torch.device("cuda:0"):
             raise ValueError(f"Textgen does not support device {self.device}")
 
-        self.config = self.model.model.transformer.config
+        self.config = getattr(self.model, "config", None) or self.model.model.transformer.config
 
     def _get_config(
         self,
