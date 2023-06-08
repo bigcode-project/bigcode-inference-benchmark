@@ -56,7 +56,9 @@ run () { # run(step, runtime, attn)
   then
     echo "Skipping existing $FILE_NAME"
   else
-    $RUN $COMMON  ${RUNTIME[$2]} ${ATTN[$3]} ${STEP[$1]} --save="$FILE_NAME"
+    CMD="$RUN $COMMON  ${RUNTIME[$2]} ${ATTN[$3]} ${STEP[$1]} --save=$FILE_NAME"
+    echo "$CMD"
+    $CMD
   fi
 }
 

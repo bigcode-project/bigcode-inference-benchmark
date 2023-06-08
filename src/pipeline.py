@@ -21,6 +21,10 @@ from transformers import (
     GPTBigCodeConfig,
 )
 
+from transformers.modeling_outputs import (
+    CausalLMOutputWithCrossAttentions,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +75,6 @@ class Pipeline:
         else:
             self.model = self._load_pretrained(pretrained_model)
 
-        self.model.eval()
         t3 = self._get_time()
         self.global_metrics[Metrics.INIT_TOKEN] = t1 - t0
         self.global_metrics[Metrics.INIT_CONFIG] = t2 - t1
@@ -97,7 +100,7 @@ class Pipeline:
         self.global_metrics[Metrics.INIT_DEVICE] = t2 - t1
         self.global_metrics[Metrics.INIT_WEIGHTS] = t3 - t2
 
-        return model
+        return model.eval()
 
     def _reload_model(self):
         self._save_pretrained("tmp")
@@ -132,7 +135,7 @@ class Pipeline:
             model = model.to(self.device)
             t2 = self._get_time()
             self.global_metrics[Metrics.INIT_DEVICE] = t2 - t1
-        return model
+        return model.eval()
 
     def _get_config(
         self,
@@ -382,8 +385,8 @@ class Pipeline:
         breakdown = all_metrics.pop(Metrics.LATENCY_GENERATE_BREAKDOWN, [])
 
         mean_metrics = {key: np.mean(value).item() for key, value in all_metrics.items() if len(value) > 0}
-        throughput = mean_metrics[Metrics.TOKENS_BATCH] / mean_metrics[Metrics.LATENCY_E2E]
-        model_throughput = mean_metrics[Metrics.TOKENS_BATCH] / mean_metrics[Metrics.LATENCY_MODEL]
+        throughput = mean_metrics.get(Metrics.TOKENS_BATCH, 0) / mean_metrics.get(Metrics.LATENCY_E2E, 1)
+        model_throughput = mean_metrics.get(Metrics.TOKENS_BATCH, 0) / mean_metrics.get(Metrics.LATENCY_MODEL, 1)
 
         if len(breakdown) > 0:
             mean_metrics[Metrics.LATENCY_GENERATE_BREAKDOWN] = {
@@ -413,7 +416,7 @@ class DS_Pipeline(Pipeline):
 
         super().__init__(**kwargs)
 
-        if self.device != torch.device("cuda"):
+        if self.device != torch.device("cuda:0"):
             raise ValueError(f"Deepspeed does not support device {self.device}")
 
         if self.dtype not in (torch.float32, torch.float16, torch.bfloat16):
@@ -431,9 +434,299 @@ class DS_Pipeline(Pipeline):
         )
 
 
+class TextGenModelWrapper:
+    def __init__(self, model):
+        from text_generation_server.models import CausalLM, FlashCausalLM
+
+        self.model = model
+        if isinstance(self.model, FlashCausalLM):
+            self._is_flash = True
+        elif isinstance(self.model, CausalLM):
+            self._is_flash = False
+        else:
+            raise NotImplementedError()
+
+    def parameters(self):
+        return []
+
+    def eval(self):
+        pass
+
+    def __call__(
+        self,
+        input_ids,
+        past_key_values,
+        attention_mask,
+        position_ids,
+        return_dict,
+        use_cache,
+    ):
+        if self._is_flash:
+            raise NotImplementedError()
+            logits, past_key_values = self.model.forward(
+                input_ids,
+                position_ids,
+                cu_seqlens,
+                max_s,
+                past_key_values,
+                pre_allocate_past_size,
+            )
+        else:
+            logits, past_key_values = self.model.forward(input_ids, attention_mask, position_ids, past_key_values)
+        return CausalLMOutputWithCrossAttentions(
+            loss=None,
+            logits=logits,
+            past_key_values=past_key_values,
+            hidden_states=None,
+            attentions=None,
+            cross_attentions=None,
+        )
+
+
+class TG_Pipeline(Pipeline):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        # TODO: Ignoring dtype
+
+        if self.device != torch.device("cuda:0"):
+            raise ValueError(f"Textgen does not support device {self.device}")
+
+        self.config = getattr(self.model, "config", None) or self.model.model.transformer.config
+
+    def _get_config(
+        self,
+        model_type: Optional[str],
+        pretrained_config: Optional[str],
+        config_args: Dict[str, Any],
+    ) -> Optional[PretrainedConfig]:
+        return None
+
+    def _create_model(self) -> PreTrainedModel:
+        raise NotImplementedError()
+
+    def _reload_model(self):
+        raise NotImplementedError()
+
+    def _save_pretrained(self, pretrained_model: str):
+        raise NotImplementedError()
+
+    def _load_pretrained(self, pretrained_model: str):
+        from text_generation_server.models import get_model
+
+        pretrained_model, revision = parse_revision(pretrained_model)
+
+        with fast_init(self.device) if self.fast_init else contextlib.nullcontext():
+            return get_model(pretrained_model, revision, False, None)
+
+    def _generate_hf(self, inputs: Dict, max_new_tokens: int, use_cache: bool):
+        raise NotImplementedError()
+
+    def _allocate_mock_cache(self, past_key_length: int, batch_size: int):
+        raise NotImplementedError()
+
+    def get_num_parameters(self) -> int:
+        return 0
+
+    def _update_generate_batch(self, batch, use_cache, do_prefill, key_length):
+        from text_generation_server.models.flash_causal_lm import FlashCausalLMBatch
+
+        assert do_prefill or use_cache
+
+        if isinstance(batch, FlashCausalLMBatch):
+            # Tested for flash santacoder only
+            # TODO: Fix batch size 1
+            assert max(batch.input_lengths) == batch.max_seqlen
+            seqlen_diff = key_length - batch.max_seqlen
+            assert seqlen_diff >= 0
+            kv_shape = [2, 1, self.config.n_embd // self.config.n_head]
+            if batch.past_key_values is None:
+                mock_cache = use_cache and not do_prefill
+            else:
+                if not use_cache:
+                    batch.past_key_values = None
+                mock_cache = use_cache and seqlen_diff > 0
+            if mock_cache:
+                if len(batch.input_lengths) > 1:
+                    batch.past_key_values = []
+                else:
+                    batch.past_key_values = torch.randn(
+                        [self.config.n_layer, batch.max_tokens, *kv_shape],
+                        dtype=self.model.dtype,
+                        device=self.device,
+                    )
+
+            for i, old_length in enumerate(batch.input_lengths):
+                length = old_length + seqlen_diff
+                batch.input_lengths[i] = length
+                batch.max_seqlen = max(batch.max_seqlen, length)
+                add_tokens = [self.tokenizer.pad_token_id] * seqlen_diff
+                batch.all_input_ids[i].extend(add_tokens)
+                batch.all_input_ids_tensor[i][old_length:length] = torch.tensor(add_tokens)
+                batch.cu_seqlens[(i + 1)] = batch.cu_seqlens[i] + length
+
+                if use_cache and batch.past_key_values is not None:
+                    # Decode
+                    batch.input_ids[i] = batch.all_input_ids_tensor[i][length - 1 : length]
+                    batch.position_ids[i] = length - 1
+                    if mock_cache and len(batch.input_lengths) > 1:
+                        batch.stopping_criterias[i].current_tokens = max(batch.stopping_criterias[i].current_tokens, 1)
+                        batch.past_key_values.append(
+                            torch.randn(
+                                [self.config.n_layer, length, *kv_shape],
+                                dtype=self.model.dtype,
+                                device=self.device,
+                            )
+                        )
+                        batch.past_key_values.append(
+                            torch.zeros(
+                                [self.config.n_layer, 1, *kv_shape],
+                                dtype=self.model.dtype,
+                                device=self.device,
+                            )
+                        )
+                else:
+                    # Prefill
+                    batch.input_ids[i] = batch.all_input_ids_tensor[i][:length]
+                    batch.position_ids[i] = torch.arange(0, length, dtype=torch.int32, device=self.device)
+
+            assert batch.max_seqlen == key_length
+
+        else:
+            raise NotImplementedError()
+
+    def _generate_textgen(
+        self,
+        batch,
+        max_new_tokens: int,
+        use_cache: bool = True,
+        do_prefill: bool = True,
+        breakdown_latency: bool = False,
+        key_length_step: int = 1,
+        ignore_oom: bool = False,
+        pad_generated_tokens: float = 0,
+    ):
+        t0 = self._get_time(breakdown_latency)
+        assert do_prefill or use_cache
+        # TODO: Implement?
+        assert pad_generated_tokens == 0
+
+        input_length = max(batch.input_lengths)
+        output_length = input_length + max_new_tokens
+
+        t1 = self._get_time(breakdown_latency)
+        last_time = t1
+        generate_times = {}
+        with torch.inference_mode():
+            for key_length in range(input_length, output_length, key_length_step):
+                try:
+                    if (key_length_step > 1 and key_length > input_length) or not use_cache or not do_prefill:
+                        if not hasattr(self.model, "fast_forward"):
+                            raise NotImplementedError()
+                        self.model.fast_forward(batch, key_length, self.dtype if use_cache else None)
+                        last_time = self._get_time(breakdown_latency)
+                    generated, batch = self.model.generate_token(batch)
+                    t2 = self._get_time(breakdown_latency)
+                    generate_times[key_length] = t2 - last_time
+                    last_time = t2
+                except torch.cuda.OutOfMemoryError:
+                    if ignore_oom:
+                        logger.warning(f"Out of memory at key length {key_length}")
+                        break
+                    else:
+                        raise
+        output_text = ["" if g.generated_text is None else g.generated_text.text for g in generated]
+
+        metrics = {}
+        if breakdown_latency:
+            metrics[Metrics.LATENCY_GENERATE_START] = t1 - t0
+            metrics[Metrics.LATENCY_GENERATE_BREAKDOWN] = generate_times
+
+        return output_text, metrics
+
+    def __call__(
+        self,
+        text: List[str],
+        max_new_tokens: int,
+        custom_generate: bool = False,
+        use_cache: bool = True,
+        do_prefill: bool = True,
+        breakdown_latency=False,
+        key_length_step: int = 1,
+        ignore_oom: bool = False,
+        pad_generated_tokens: float = 0,
+    ) -> Tuple[List[str], Dict[str, Any]]:
+        t0 = self._get_time()
+
+        from text_generation_server.pb import generate_pb2
+        from text_generation_server.models.model import Model
+
+        model: Model = self.model
+
+        batch_pb = generate_pb2.Batch(
+            id=0,
+            requests=[
+                generate_pb2.Request(
+                    id=i,
+                    inputs=t,
+                    truncate=99999,
+                    parameters=generate_pb2.NextTokenChooserParameters(
+                        temperature=1.0,
+                        top_p=1,
+                        typical_p=1,
+                        do_sample=False,
+                        seed=0,
+                        repetition_penalty=1.0,
+                        watermark=False,
+                    ),
+                    stopping_parameters=generate_pb2.StoppingCriteriaParameters(
+                        max_new_tokens=max_new_tokens,
+                        stop_sequences=None,
+                        ignore_eos_token=True,
+                    ),
+                )
+                for i, t in enumerate(text)
+            ],
+            size=len(text),
+            max_tokens=0,  # Ignored
+        )
+        batch = model.batch_type.from_pb(batch_pb, self.tokenizer, self.device)
+        batch_size = len(batch)
+
+        # TODO: Implement
+        input_length = max(batch.input_lengths)
+        output_length = input_length + max_new_tokens
+
+        output_text, generate_metrics = self._generate_textgen(
+            batch,
+            max_new_tokens,
+            use_cache,
+            do_prefill,
+            breakdown_latency,
+            key_length_step,
+            ignore_oom,
+            pad_generated_tokens,
+        )
+        t1 = self._get_time(True)
+
+        metrics = {
+            **generate_metrics,
+            Metrics.BATCH_SIZE: batch_size,
+            Metrics.INPUT_LENGTH: input_length,
+            Metrics.OUTPUT_LENGTH: output_length,
+            Metrics.TOKENS_SAMPLE: output_length - input_length,
+            Metrics.TOKENS_BATCH: batch_size * (output_length - input_length),
+            Metrics.LATENCY_E2E: t1 - t0,
+        }
+
+        output_text = [i + o for i, o in zip(text, output_text)]
+
+        return output_text, metrics
+
+
 _PIPELINE_CLASS_MAP = {
     "HF_Pipeline": HF_Pipeline,
     "DS_Pipeline": DS_Pipeline,
+    "TG_Pipeline": TG_Pipeline,
 }
 
 

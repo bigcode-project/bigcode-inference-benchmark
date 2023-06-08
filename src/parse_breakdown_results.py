@@ -2,6 +2,8 @@ import json
 from argparse import ArgumentParser
 from pathlib import Path
 from typing import List, Optional
+import matplotlib.pyplot as plt
+import pandas as pd
 
 
 def get_arg_parser() -> ArgumentParser:
@@ -10,6 +12,7 @@ def get_arg_parser() -> ArgumentParser:
     parser.add_argument("--title")
     parser.add_argument("--size", nargs=2, type=float)
     parser.add_argument("--save_dir", "--save", type=Path)
+    parser.add_argument("--rolling", "-r", type=int)
     return parser
 
 
@@ -24,9 +27,7 @@ def read_data(input_file: Path):
     return data
 
 
-def plot(data, title=None, size=None):
-    import matplotlib.pyplot as plt
-
+def plot(data, title=None, size=None, rolling=None):
     fig = plt.figure(figsize=size)
     ax = fig.add_subplot()
 
@@ -34,10 +35,11 @@ def plot(data, title=None, size=None):
     cmap = cmap[::2] + cmap[1::2]
 
     for i, dat in enumerate(data):
-        latency_data = dat["Latency (generate breakdown)"]
+        latency_data = pd.Series({int(k): v * 1000 for k, v in dat["Latency (generate breakdown)"].items()})
+        if rolling is not None:
+            latency_data = latency_data.rolling(rolling, center=True, min_periods=1).mean()
         ax.plot(
-            [int(k) for k in latency_data.keys()],
-            [v * 1000 for v in latency_data.values()],
+            latency_data,
             label=dat["Setting"],
             linewidth=1,
             color=cmap[i],
@@ -62,12 +64,12 @@ def main(argv: Optional[List[str]] = None) -> None:
     dirname = args.input_dir.stem
     if title is None:
         try:
-            name, _, bs, _, _, _, _, step = dirname.rsplit("_", 7)
-            title = f"{name} {step}, bs = {bs}"
+            name, _, bs, _, _, _, _, step, cycles = dirname.rsplit("_", 8)
+            title = f"{name}, bs = {bs} (s={step}, c={cycles})"
         except ValueError:
             title = dirname
 
-    fig = plot(data, title, args.size)
+    fig = plot(data, title, args.size, args.rolling)
     fig.show()
     if args.save_dir:
         save_path = (args.save_dir / dirname).with_suffix(".jpg")
