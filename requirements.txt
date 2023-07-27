@@ -3,6 +3,8 @@ bitsandbytes
 safetensors
 deepspeed==0.7.7
 -e ./transformers
+flash-attn
+einops
 
 # TODO: Analysis only
 py-markdown-table
